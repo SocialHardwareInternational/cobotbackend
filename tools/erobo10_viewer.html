@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>erobo10 — Pose Test Viewer</title>
+<style>
+  :root{--bg:#0c0e13;--panel:#161a22;--p2:#1d222c;--line:#2a313e;--txt:#e6e9ef;--mut:#8b93a3;--acc:#3da9fc;--ok:#39d98a;--warn:#f5a623;--err:#ff5c5c}
+  *{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--txt);font:13px/1.4 system-ui,Segoe UI,Roboto,sans-serif}
+  #scene{position:absolute;inset:0}#scene canvas{display:block}
+  #top{position:absolute;top:0;left:0;right:0;height:44px;display:flex;gap:10px;align-items:center;padding:0 12px;background:rgba(18,21,28,.85);border-bottom:1px solid var(--line);z-index:5}
+  #top h1{font-size:14px;margin:0;font-weight:600}#top h1 small{color:var(--mut);font-weight:400}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--err)}.dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  input{background:#0c0f14;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:5px 7px}
+  #url{width:190px}button{background:var(--p2);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 10px;cursor:pointer}
+  button:hover{border-color:var(--acc)}button.go{border-color:var(--ok);color:#bff3d6}button.danger{border-color:var(--err);color:#ffb3b3}
+  .pill{padding:2px 9px;border-radius:999px;font-size:12px;background:var(--p2);border:1px solid var(--line)}.pill.estop{background:#3a1414;color:#ffb3b3}
+  #panel{position:absolute;top:44px;right:0;bottom:0;width:330px;overflow-y:auto;padding:12px;background:rgba(20,24,31,.93);border-left:1px solid var(--line);z-index:5}
+  #panel h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:14px 0 8px}#panel h2:first-child{margin-top:0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:10px}
+  .row{display:flex;justify-content:space-between;padding:2px 0;font-variant-numeric:tabular-nums}.row span:last-child{color:var(--acc)}
+  .g3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.mini{width:100%}
+  label.in{display:block;color:var(--mut);margin:8px 0 3px;font-size:11px}
+  .jogb{padding:3px 13px;font-size:14px;line-height:1}
+  .jrow{display:flex;align-items:center;gap:8px;margin:4px 0}.jrow span{width:26px;color:var(--mut)}.jrow input[type=range]{flex:1}.jrow b{width:58px;text-align:right;font-variant-numeric:tabular-nums}
+  #log{font:11px/1.4 ui-monospace,Consolas,monospace;background:#0a0c10;border:1px solid var(--line);border-radius:7px;padding:7px;height:96px;overflow:auto;white-space:pre-wrap;margin-top:6px}
+  #hint{position:absolute;left:12px;bottom:12px;color:var(--mut);font-size:12px;background:rgba(18,21,28,.7);padding:6px 10px;border-radius:7px;border:1px solid var(--line)}
+  .leg{position:absolute;left:12px;top:54px;font-size:11px;color:var(--mut);background:rgba(18,21,28,.6);padding:6px 9px;border-radius:7px;border:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div id="scene"></div>
+<div class="leg" id="meshmode">loading…</div>
+<div id="top">
+  <span class="dot" id="dot"></span>
+  <h1>erobo10 <small>pose test viewer</small></h1>
+  <input id="url" value="ws://localhost:8765"/>
+  <button id="connect">Connect</button>
+  <span class="pill" id="mode">—</span>
+  <span class="pill" id="manip">manip —</span>
+  <span style="flex:1"></span>
+  <button class="go" id="enable">Enable</button>
+  <button id="disable">Disable</button>
+  <button class="danger" id="estop">E‑STOP</button>
+  <button class="go" id="reset">Reset</button>
+  <button id="ecatrst" title="re-establish the EtherCAT bus — clear faults and recover dropped joints">↻ EtherCAT</button>
+  <button id="collbtn" title="enable/disable the software self-collision monitor" style="background:#5a1f1f">🛡 Collision: OFF</button>
+</div>
+<div id="panel">
+  <h2>Live state</h2>
+  <div class="card">
+    <div id="joints"></div>
+    <div class="row"><span>flange xyz</span><span id="fpos">—</span></div>
+    <div class="row"><span>flange quat</span><span id="fquat">—</span></div>
+    <div class="row"><span>tool tip xyz</span><span id="tpos">—</span></div>
+    <div class="row"><span>progress</span><span id="prog">—</span></div>
+    <div class="row"><span>torque (peak)</span><span id="tq">—</span></div>
+  </div>
+
+  <h2>Move to pose (test the URDF)</h2>
+  <div class="card">
+    <label class="in">position x y z (m)</label>
+    <div class="g3"><input class="mini" id="px" value="-0.4"><input class="mini" id="py" value="-0.6"><input class="mini" id="pz" value="0.9"></div>
+    <label class="in">orientation roll pitch yaw (rad)</label>
+    <div class="g3"><input class="mini" id="rr" value="3.14"><input class="mini" id="rp" value="0"><input class="mini" id="ry" value="0"></div>
+    <label class="in">speed <span id="spv">40%</span></label>
+    <input type="range" id="sp" min="5" max="100" value="40" style="width:100%">
+    <label class="in">acceleration <span id="acv">60%</span></label>
+    <input type="range" id="ac" min="5" max="100" value="60" style="width:100%">
+    <label class="in">payload kg (tool/load for torque model)</label>
+    <div style="display:flex;gap:6px"><input class="mini" id="pl" value="0" style="flex:1"><button id="plset">Set</button></div>
+    <div class="g3" style="margin-top:8px">
+      <button class="go" id="ptp">MoveJ</button>
+      <button class="go" id="lin">MoveL</button>
+      <button class="danger" id="stop">Stop</button>
+    </div>
+    <button class="go" id="movep" style="width:100%;margin-top:6px">MoveP ▢ (blended square)</button>
+    <small>MoveJ = joint move · MoveL = straight line · MoveP = constant speed + circular blends</small>
+  </div>
+
+  <h2>Joint target</h2>
+  <div class="card"><div id="jsliders"></div>
+    <button class="go" id="movej" style="width:100%;margin-top:6px">Move joints</button>
+    <button id="zeroj" style="width:100%;margin-top:6px">All joints → 0</button></div>
+
+  <h2>Jog joints (hold arrow)</h2>
+  <div class="card"><div id="jogrows"></div>
+    <small>hold ◀ / ▶ to move that joint · <span style="color:var(--ok)">green</span>=operable · <span style="color:var(--err)">red</span>=not ready</small></div>
+
+  <h2>Joint direction calibration (±1)</h2>
+  <div class="card">
+    <small style="display:block;color:#8a97a8;margin-bottom:6px">If a joint moves the <b>opposite way</b> on the real arm vs the 3D model, tap it to flip its sign. Applies live and saves to <code>calibration.txt</code>. The drives disable on a change — re‑enable to move.</small>
+    <div id="signrow" style="display:flex;gap:6px;justify-content:space-between"></div>
+    <small id="signstat" style="display:block;color:#8a97a8;margin-top:6px;min-height:14px"></small>
+  </div>
+
+  <h2>Drag-teach</h2>
+  <div class="card">
+    <div class="g3">
+      <button class="go" id="td_free">Free-drive</button>
+      <button id="td_lock">Lock</button>
+      <button id="td_rec">Record</button>
+    </div>
+    <div class="g3" style="margin-top:6px">
+      <button class="go" id="td_play">Play</button>
+      <button id="td_clear">Clear</button>
+      <span class="pill" style="text-align:center">wp: <b id="td_n">0</b></span>
+    </div>
+    <small>Free-drive (real HW) → hand-guide → Record points → Play replays them as MoveJ</small>
+  </div>
+
+  <h2>Log</h2><div id="log"></div>
+</div>
+<div id="hint">drag = orbit · scroll = zoom · right‑drag = pan</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+<script src="cobot_meshes.js"></script><!-- compact self-contained meshes: works from any folder / file:// -->
+<script>
+const $=id=>document.getElementById(id);
+const log=(m,c)=>{const d=$("log");d.innerHTML+=`<div${c?` style="color:var(--${c})"`:""}>${m}</div>`;d.scrollTop=d.scrollHeight;};
+const fmt=(a,n=3)=>Array.isArray(a)?a.map(v=>(+v).toFixed(n)).join(", "):(+a).toFixed(n);
+
+// ---- erobo10 URDF chain (joint origin xyz, rpy, axis) ----
+const URDF=[   // corrected URDF (erobo10), joint origin xyz/rpy + axis — matches the C++ model
+ {xyz:[5.025e-05,-0.00040296,0.04808044], rpy:[-3.14159265,0,0], axis:[0,0,1]},
+ {xyz:[0,0.09,-0.075],          rpy:[1.57079633,0,0],  axis:[0,0,1]},
+ {xyz:[0,-0.612,-0.017],        rpy:[-3.14159265,0,0], axis:[0,0,1]},
+ {xyz:[0,0.59,-0.0343],         rpy:[3.14159265,0,0],  axis:[0,0,1]},
+ {xyz:[0,-0.0425,-0.0555],      rpy:[1.57079633,0,0],  axis:[0,0,-1]},
+ {xyz:[0,-0.0425,0.0555],       rpy:[-1.57079633,0,0], axis:[0,0,1]},
+];
+const MESH_NAMES=["base_link","link1","link2","link3","link4","link5","link6"];
+const LIMITS=[[-3.141593,3.141593],[-3.054326,3.054326],[-3.054326,3.054326],[-3.054326,3.054326],[-3.141593,3.141593],[-3.141593,3.141593]];
+
+function rpyMat(r,p,y){const m=new THREE.Matrix4();const e=new THREE.Euler(r,p,y,"ZYX");m.makeRotationFromEuler(e);return m;}
+function originMat(j){const m=rpyMat(j.rpy[0],j.rpy[1],j.rpy[2]);m.setPosition(j.xyz[0],j.xyz[1],j.xyz[2]);return m;}
+function axisRot(ax,q){const v=new THREE.Vector3(ax[0],ax[1],ax[2]).normalize();return new THREE.Matrix4().makeRotationAxis(v,q);}
+// The 3D model is driven PURELY by the joint telemetry (q). Direction is governed ONLY by the
+// per-joint sign/offset in run/calibration.txt (which the ecat node applies to BOTH the encoder
+// reading shown here AND the motor commands), so the picture and the real motion always agree.
+function linkFrames(q){
+  const F=[new THREE.Matrix4()]; let T=new THREE.Matrix4();
+  for(let i=0;i<6;i++){ T=T.clone().multiply(originMat(URDF[i])).multiply(axisRot(URDF[i].axis,q[i])); F.push(T.clone()); }
+  return F; // F[0]=base .. F[6]=link6
+}
+
+// ---- three.js scene ----
+let renderer,scene,camera,meshes=[],usingMeshes=false,prim=[],meshScale=1;
+let orbit={r:2.6,th:0.9,ph:1.15},target=new THREE.Vector3(0,0,0.6);
+function initScene(){
+  const host=$("scene");
+  renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(devicePixelRatio||1);
+  renderer.setSize(host.clientWidth,host.clientHeight);renderer.setClearColor(0x0c0e13,1);host.appendChild(renderer.domElement);
+  scene=new THREE.Scene();scene.fog=new THREE.Fog(0x0c0e13,5,14);
+  camera=new THREE.PerspectiveCamera(45,host.clientWidth/host.clientHeight,0.05,100);camera.up.set(0,0,1);
+  scene.add(new THREE.HemisphereLight(0xbcd2ff,0x202128,0.75));
+  const d=new THREE.DirectionalLight(0xffffff,0.9);d.position.set(2,1.5,3);scene.add(d);
+  const grid=new THREE.GridHelper(4,20,0x3a4452,0x222a35);grid.rotation.x=Math.PI/2;scene.add(grid);
+  scene.add(new THREE.AxesHelper(0.3));
+  setupOrbit(renderer.domElement);window.addEventListener("resize",onResize);
+  buildPrimitive();         // always available
+  loadMeshes();             // upgrade to real STL if reachable
+  animate();
+}
+function onResize(){const h=$("scene");camera.aspect=h.clientWidth/h.clientHeight;camera.updateProjectionMatrix();renderer.setSize(h.clientWidth,h.clientHeight);}
+function setupOrbit(dom){let drag=0,px=0,py=0;
+  dom.addEventListener("mousedown",e=>{drag=e.button===2?2:1;px=e.clientX;py=e.clientY;});
+  window.addEventListener("mouseup",()=>drag=0);
+  window.addEventListener("mousemove",e=>{if(!drag)return;const dx=e.clientX-px,dy=e.clientY-py;px=e.clientX;py=e.clientY;
+    if(drag===1){orbit.th-=dx*0.01;orbit.ph=Math.max(0.2,Math.min(Math.PI-0.2,orbit.ph-dy*0.01));}
+    else{const rt=new THREE.Vector3(-Math.sin(orbit.th),Math.cos(orbit.th),0);target.addScaledVector(rt,-dx*0.002);target.z+=dy*0.002;}});
+  dom.addEventListener("wheel",e=>{e.preventDefault();orbit.r=Math.max(0.7,Math.min(8,orbit.r*(1+Math.sign(e.deltaY)*0.1)));},{passive:false});
+  dom.addEventListener("contextmenu",e=>e.preventDefault());
+}
+function updateCam(){const s=Math.sin(orbit.ph);camera.position.set(target.x+orbit.r*s*Math.cos(orbit.th),target.y+orbit.r*s*Math.sin(orbit.th),target.z+orbit.r*Math.cos(orbit.ph));camera.lookAt(target);}
+
+// primitive fallback: a sphere per frame + tube between consecutive frames
+let primJoints=[],primLinks=[];const Y=new THREE.Vector3(0,1,0);
+function buildPrimitive(){
+  const jm=new THREE.MeshStandardMaterial({color:0x27c2b8,metalness:.4,roughness:.5});
+  const lm=new THREE.MeshStandardMaterial({color:0x5b7fa6,metalness:.5,roughness:.5});
+  for(let i=0;i<7;i++){const s=new THREE.Mesh(new THREE.SphereGeometry(0.045,20,14),jm);s.visible=false;scene.add(s);primJoints.push(s);}
+  for(let i=0;i<6;i++){const c=new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,1,16),lm);c.visible=false;scene.add(c);primLinks.push(c);}
+}
+function placeCyl(mesh,p0,p1){const dir=new THREE.Vector3().subVectors(p1,p0);const len=dir.length();if(len<1e-4){mesh.visible=false;return;}mesh.visible=true;mesh.position.copy(p0).addScaledVector(dir,0.5);mesh.scale.set(1,len,1);mesh.quaternion.setFromUnitVectors(Y,dir.clone().normalize());}
+
+function loadMeshes(){
+  let loaded=0;
+  // try the common locations so it works however you serve the folder
+  const bases=["meshes/erobo10/","./meshes/erobo10/","tools/meshes/erobo10/","../tools/meshes/erobo10/"];  // corrected-URDF STLs (baked to link frames, metres)
+  const mats=[0x9aa7b5,0x6f8bb0,0x6f8bb0,0x6f8bb0,0x7d9bbf,0x7d9bbf,0xc0c8d2].map(c=>new THREE.MeshStandardMaterial({color:c,metalness:.45,roughness:.5}));
+  meshes=new Array(7).fill(null);
+  function build(i,geo,label){
+    if(i===0){ geo.computeBoundingBox(); const sz=new THREE.Vector3(); geo.boundingBox.getSize(sz);
+      if(sz.length()>5){ meshScale=0.001; log("meshes look like mm → scaling 0.001","warn"); } }
+    geo.scale(meshScale,meshScale,meshScale);
+    const m=new THREE.Mesh(geo,mats[i]);m.matrixAutoUpdate=false;scene.add(m);meshes[i]=m;
+    if(++loaded===7){ usingMeshes=true; $("meshmode").textContent=label||"real STL meshes";
+      primJoints.forEach(p=>p.visible=false); primLinks.forEach(p=>p.visible=false);
+      applyFrames(lastQ); log("loaded 7 meshes","ok"); }   // pose them now (even before a connection)
+  }
+  // self-contained fallback: build from embedded compact meshes — works from ANY folder, even file://
+  function b64buf(b){const s=atob(b),n=s.length,u=new Uint8Array(n);for(let k=0;k<n;k++)u[k]=s.charCodeAt(k);return u.buffer;}
+  function embedded(){
+    const M=window.COBOT_MESHES; if(!M) return false;
+    loaded=0; meshScale=1;
+    for(let i=0;i<7;i++){ const d=M[MESH_NAMES[i]]; if(!d) return false;
+      const geo=new THREE.BufferGeometry();
+      geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(b64buf(d.p)),3));
+      geo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64buf(d.i)),1));
+      geo.computeVertexNormals();
+      build(i,geo,"real meshes (compact, embedded)"); }
+    return true;
+  }
+  if(!THREE.STLLoader){ if(!embedded()) $("meshmode").textContent="primitive view (no STL loader, no embedded meshes)"; return; }
+  const loader=new THREE.STLLoader();
+  (function probe(bi){
+    if(bi>=bases.length){
+      if(embedded()){ log("full STLs not reachable here → using embedded compact meshes","ok"); return; }
+      $("meshmode").textContent="primitive view — serve over http:// (meshes not reachable)";
+      log("No meshes available. Keep cobot_meshes.js next to this file, or serve the project root.","warn"); return; }
+    loader.load(bases[bi]+"base_link.STL", geo=>{ build(0,geo);
+        for(let i=1;i<7;i++) loader.load(bases[bi]+MESH_NAMES[i]+".STL", g=>build(i,g), undefined, ()=>{}); },
+      undefined, ()=>probe(bi+1));
+  })(0);
+}
+
+function applyFrames(q){
+  const F=linkFrames(q);
+  if(usingMeshes){ for(let i=0;i<7;i++) if(meshes[i]) meshes[i].matrix.copy(F[i]); }
+  else{
+    const O=F.map(f=>new THREE.Vector3().setFromMatrixPosition(f));
+    for(let i=0;i<7;i++){primJoints[i].visible=true;primJoints[i].position.copy(O[i]);}
+    for(let i=0;i<6;i++) placeCyl(primLinks[i],O[i],O[i+1]);
+  }
+}
+function animate(){requestAnimationFrame(animate);updateCam();renderer.render(scene,camera);}
+
+// ---- websocket ----
+let ws=null,lastQ=[0,0,0,0,0,0],lastFlange=null;
+function connect(){
+  if(ws){try{ws.close()}catch(e){}}
+  var uv=$("url").value.trim();
+  log("connecting to "+uv+" …","mut");
+  try{ ws=new WebSocket(uv); }
+  catch(e){ log("invalid URL '"+uv+"': "+e.message,"err"); return; }
+  var opened=false;
+  var to=setTimeout(function(){ if(!opened && (!ws||ws.readyState!==1)){
+      log("no answer from "+uv+" after 6 s — the bridge is not reachable there.","err");
+      log("on the robot PC: is it listening?  ss -ltn | grep 8765   (expect 0.0.0.0:8765). if not, (re)start the backend.","warn");
+      log("from this PC: can you reach it?  ping <robot-ip>  and  curl http://<robot-ip>:8000 . if not → firewall / Wi‑Fi AP‑isolation.","warn");
+      log("if you use ws://localhost you need an SSH tunnel up:  ssh -N -L 8765:localhost:8765 user@<robot-ip>","warn");
+    } },6000);
+  ws.onopen=()=>{opened=true;clearTimeout(to);$("dot").classList.add("on");log("connected to "+uv,"ok");};
+  ws.onclose=()=>{clearTimeout(to);$("dot").classList.remove("on");log("disconnected from "+uv,"warn");};
+  ws.onerror=()=>log("socket error to "+uv+" — host unreachable or no bridge listening on that port","err");
+  ws.onmessage=e=>{const m=JSON.parse(e.data);
+    if(m.type==="welcome"){log("server: "+(m.robot||"ok"),"ok"); if(m.signs&&window.applySigns)applySigns(m.signs); return;}
+    if(m.type==="signs"){ if(m.signs&&window.applySigns)applySigns(m.signs); if($("signstat"))$("signstat").textContent="signs saved: ["+(m.signs||[]).map(function(v){return v>0?"+1":"−1";}).join(" ")+"] — re‑enable to move"; return; }
+    if(m.type==="waypoints"){ if(m.message&&window.safetyToast)safetyToast("wpexist","warn",'<b>Can’t save waypoint</b><div class="tsub">'+m.message+'</div>',{timeout:5000}); if(window.wpRender)wpRender(m.waypoints);return;}
+    if(m.type==="program"){if(window.progEvent)progEvent(m);return;}
+    if(m.type==="writing"){if(window.wrPreview)wrPreview(m);return;}
+    if(m.type==="planes"){if(window.wrPlanes)wrPlanes(m);return;}
+    if(m.type==="tools"){if(window.toolRender)toolRender(m);return;}
+    if(m.type==="probe"){if(window.probeEvent)probeEvent(m);return;}
+    if(m.type==="ready_pose"){ var e=$("prstat"); if(e){ if(m.ok&&m.q) e.textContent="✓ ready pose saved: ["+m.q.map(function(v){return (v*180/Math.PI).toFixed(1);}).join(", ")+"]°"; else if(!m.ok) e.textContent="✕ "+(m.message||"save failed"); } return; }
+    if(m.type==="ack"){log(`ack ${m.cmd}: ${m.ok?"OK":"FAIL"}${m.pos_err!=null?" err "+m.pos_err.toExponential(2)+" m":""}${m.message?" "+m.message:""}`,m.ok?"ok":"err");window.ikFailToast&&window.ikFailToast(m);window.tcpAck&&window.tcpAck(m);return;}
+    if(m.type==="error"){log("error: "+m.message,"err");return;}
+    if(m.type==="state"){window._tlState=m;renderState(m);applyFrames(m.q);lastQ=m.q;lastFlange=m.flange;
+        if(TP.on){ if(m.moving)TP.seen=true;
+          if(TP.seen&&!m.moving){TP.seen=false;TP.i++;
+            if(TP.i<TW.length)send({cmd:"move_joint",q:TW[TP.i],speed:0.4});
+            else{TP.on=false;send({cmd:"freedrive",on:false});send({cmd:"enable"});log("replay done — holding position (locked)","ok");}}}}
+  };
+}
+function send(o){if(ws&&ws.readyState===1)ws.send(JSON.stringify(o));}
+$("connect").onclick=connect;
+
+function renderState(m){
+  $("mode").textContent=m.mode;$("mode").className="pill"+(m.estop?" estop":"");if($("enable"))$("enable").style.opacity=m.enabled?"1":"0.55";
+  $("manip").textContent="manip "+(+m.manip).toFixed(3);
+  let h="";for(let i=0;i<6;i++)h+=`<div class="row"><span>J${i+1}</span><span>${m.q[i].toFixed(4)} (${(m.q[i]*180/Math.PI).toFixed(1)}°)</span></div>`;
+  $("joints").innerHTML=h;
+  $("fpos").textContent=fmt(m.flange.pos,4);$("fquat").textContent=fmt(m.flange.quat,3);
+  if(m.tcp)$("tpos").textContent=fmt(m.tcp.pos,4);
+  $("prog").textContent=(m.moving?"moving ":"idle ")+(m.progress*100).toFixed(0)+"%";
+  if(m.torque_util!==undefined){const u=m.torque_util;const t=$("tq");t.textContent=(u*100).toFixed(0)+"% of limit";t.style.color=u>1?"var(--err)":u>0.8?"var(--warn)":"var(--acc)";}
+  // keep joint sliders synced when idle
+  if(!m.moving) for(let i=0;i<6;i++){const s=$("js"+i);if(s&&document.activeElement!==s){s.value=m.q[i];$("jv"+i).textContent=m.q[i].toFixed(2);}}
+  if(m.joint_op)for(let i=0;i<6;i++){const ok=m.joint_op[i];const l=$("jgl"+i);if(l)l.style.color=ok?"var(--ok)":"var(--err)";
+    const a=$("jga"+i);if(a)a.textContent=m.q[i].toFixed(2);const dn=$("jn"+i),dp=$("jp"+i);if(dn){dn.style.opacity=ok?"1":"0.4";dp.style.opacity=ok?"1":"0.4";}}
+}
+
+// ---- controls ----
+$("sp").oninput=()=>$("spv").textContent=$("sp").value+"%";
+$("ac").oninput=()=>$("acv").textContent=$("ac").value+"%";
+function accel(){ var e=$("ac"); return Math.max(0.05,(e?+e.value:60)/100); }   // global accel scale (0..1)
+function poseMsg(cmd){const n=id=>parseFloat($(id).value||"0");
+  return {cmd,pos:[n("px"),n("py"),n("pz")],rpy:[n("rr"),n("rp"),n("ry")],speed:(+$("sp").value)/100,accel:accel()};}
+$("ptp").onclick=()=>{send(poseMsg("move_ptp"));log("→ PTP","mut");};
+$("lin").onclick=()=>{send(poseMsg("move_lin"));log("→ LIN","mut");};
+$("stop").onclick=()=>send({cmd:"stop"});
+$("movep").onclick=()=>{
+  if(!lastFlange){log("connect first","warn");return;}
+  const c=lastFlange.pos, n=id=>parseFloat($(id).value||"0"), rpy=[n("rr"),n("rp"),n("ry")], s=0.12;
+  const W=[[0,0,0],[s,0,0],[s,s,0],[0,s,0],[0,0,0]].map(o=>({pos:[c[0]+o[0],c[1]+o[1],c[2]+o[2]],rpy}));
+  send({cmd:"move_p",waypoints:W,blend:0.03,tool_speed:Math.max(0.02,(+$("sp").value)/100*0.2)});
+  log("→ MoveP blended square","mut");
+};
+$("enable").onclick=()=>{send({cmd:"enable"});log("→ enable drives","mut");};
+$("disable").onclick=()=>{send({cmd:"disable"});log("→ disable drives","mut");};
+$("estop").onclick=()=>send({cmd:"estop"});
+$("reset").onclick=()=>send({cmd:"reset"});
+$("ecatrst").onclick=()=>{ if(confirm("Restart the EtherCAT connection?\n\nClears faults and re-establishes all joints. The drives are disabled during/after — re-enable to resume.")){ send({cmd:"ecat_reset"}); log("→ restart EtherCAT (re-establishing slaves)…","mut"); } };
+let collOn=false;
+$("collbtn").onclick=()=>{ collOn=!collOn; send({cmd:"set_collision",on:collOn});
+  var b=$("collbtn"); b.textContent="🛡 Collision: "+(collOn?"ON":"OFF");
+  b.style.background=collOn?"":"#5a1f1f"; b.style.borderColor=collOn?"":"#a33";
+  log("→ self-collision monitor "+(collOn?"ENABLED":"DISABLED"),collOn?"ok":"warn");
+  if(!collOn) log("collision monitor OFF — the arm will not auto-stop on self-collision","warn"); };
+$("plset").onclick=()=>{const kg=parseFloat($("pl").value||"0");send({cmd:"set_payload",kg:kg});log("→ payload "+kg+" kg","mut");};
+let TW=[], TP={on:false,i:0,seen:false};
+$("td_free").onclick=()=>{send({cmd:"enable"});send({cmd:"freedrive",on:true});log("→ free-drive ON (hand-guide)","mut");};
+$("td_lock").onclick=()=>{send({cmd:"freedrive",on:false});log("→ free-drive OFF","mut");};
+$("td_rec").onclick=()=>{if(!lastQ){log("connect first","warn");return;}TW.push(lastQ.slice());$("td_n").textContent=TW.length;log("recorded waypoint #"+TW.length,"mut");};
+$("td_clear").onclick=()=>{TW=[];TP.on=false;$("td_n").textContent=0;log("cleared waypoints","mut");};
+$("td_play").onclick=()=>{if(!TW.length){log("no waypoints recorded","warn");return;}send({cmd:"freedrive",on:false});TP={on:true,i:0,seen:false};setTimeout(()=>send({cmd:"move_joint",q:TW[0],speed:0.4}),250);log("→ replay "+TW.length+" waypoints","mut");};
+// joint sliders
+let js="";for(let i=0;i<6;i++)js+=`<div class="jrow"><span>J${i+1}</span><input type="range" id="js${i}" min="${LIMITS[i][0]}" max="${LIMITS[i][1]}" step="0.01" value="0"><b id="jv${i}">0.00</b></div>`;
+$("jsliders").innerHTML=js;
+for(let i=0;i<6;i++)$("js"+i).oninput=()=>$("jv"+i).textContent=(+$("js"+i).value).toFixed(2);
+$("movej").onclick=()=>{const q=[];for(let i=0;i<6;i++)q.push(+$("js"+i).value);send({cmd:"move_joint",q,speed:(+$("sp").value)/100,accel:accel()});log("→ move joints","mut");};
+$("zeroj").onclick=()=>{send({cmd:"move_joint",q:[0,0,0,0,0,0],speed:Math.max(0.05,(+$("sp").value)/100),accel:accel()});log("→ all joints to 0","mut");};
+let jgs="";for(let i=0;i<6;i++)jgs+=`<div class="jrow"><span id="jgl${i}">J${i+1}</span><button class="jogb" id="jn${i}">◀</button><button class="jogb" id="jp${i}">▶</button><b id="jga${i}">0.00</b></div>`;
+$("jogrows").innerHTML=jgs;
+let jogTimer=null;
+function jogStart(i,d){ if(!ws||ws.readyState!==1){log("connect first","warn");return;} jogStop();
+  const sp=Math.max(0.05,(+$("sp").value)/100); const ac=accel(); const v=[0,0,0,0,0,0]; v[i]=d;
+  const tick=()=>send({cmd:"jog",frame:"joint",vel:v,speed:sp,accel:ac}); tick(); jogTimer=setInterval(tick,100);
+  log(`jog J${i+1} ${d>0?"+":"\u2212"}`,"mut"); }
+function jogStop(){ if(jogTimer){clearInterval(jogTimer);jogTimer=null;send({cmd:"stop"});} }
+for(let i=0;i<6;i++){ const dn=$("jn"+i),dp=$("jp"+i);
+  dn.onmousedown=()=>jogStart(i,-1); dp.onmousedown=()=>jogStart(i,1);
+  dn.onmouseup=jogStop; dp.onmouseup=jogStop; dn.onmouseleave=jogStop; dp.onmouseleave=jogStop;
+  dn.ontouchstart=e=>{e.preventDefault();jogStart(i,-1);}; dp.ontouchstart=e=>{e.preventDefault();jogStart(i,1);};
+  dn.ontouchend=jogStop; dp.ontouchend=jogStop; }
+
+initScene();
+log("Set URL and Connect. Start control_node + planner + ik_solver + bridge first.","mut");
+log("Open via http:// (e.g. python3 -m http.server) to load the STL meshes.","mut");
+</script>
+
+<!-- ===== persistent named waypoints (saved on the robot, shared across UIs) ===== -->
+<style>
+  #wpbtn{position:fixed;right:16px;bottom:16px;z-index:30;background:var(--acc,#39b0ff);color:#04243d;border:0;border-radius:10px;padding:10px 16px;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,.5)}
+  #tcpbtn{position:fixed;right:148px;bottom:16px;z-index:30;background:#1b2230;color:#e7edf5;border:1px solid #2a3340;border-radius:10px;padding:10px 16px;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,.5)}
+  #wrbtn{position:fixed;right:250px;bottom:16px;z-index:30;background:#13476e;color:#e7edf5;border:1px solid #1e6ea5;border-radius:10px;padding:10px 16px;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,.5)}
+  #ctcbtn{position:fixed;right:346px;bottom:16px;z-index:30;background:#4a2f13;color:#f5d9a8;border:1px solid #a3701e;border-radius:10px;padding:10px 16px;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,.5)}
+  #wrov .wpbox{width:480px}
+  #wrtext{width:100%;box-sizing:border-box;background:#0a0e13;color:#e7edf5;border:1px solid #2a3340;border-radius:8px;padding:9px;font-size:15px;resize:vertical;min-height:56px}
+  .tsel{background:#0a0e13;color:#e7edf5;border:1px solid #2a3340;border-radius:6px;padding:3px 6px;font-size:11px;margin-left:6px}
+  .wpov{position:fixed;inset:0;background:rgba(6,8,12,.82);z-index:40;display:none;align-items:center;justify-content:center}
+  .wpbox{background:#121821;border:1px solid #2a3340;border-radius:12px;padding:16px;width:440px;max-width:92vw;max-height:88vh;overflow:auto;color:#e7edf5;font-family:inherit}
+  .wphd{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:16px;font-weight:700}
+  .wpbtns{display:flex;gap:8px;margin:6px 0 12px}
+  .wpbtns button,.wphd button{background:#1b2230;color:#e7edf5;border:1px solid #2a3340;border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer}
+  .wpbtns .go{background:#13476e;border-color:#1e6ea5;flex:1;font-weight:700}
+  .wplist{display:flex;flex-direction:column;gap:6px}
+  .wprow{display:flex;align-items:center;gap:6px;background:#0e141c;border:1px solid #232c38;border-radius:8px;padding:6px 9px}
+  .wpnm{flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wprow button{background:#1b2230;color:#e7edf5;border:1px solid #2a3340;border-radius:7px;padding:6px 11px;cursor:pointer}
+  .wprow .wgo{background:#13476e;border-color:#1e6ea5;font-weight:700}
+  .wprow .wdel{color:#ff8a8a}
+  .wphint{color:#8a97a8;font-size:13px;padding:6px 2px}
+  .wpin{width:100%;box-sizing:border-box;background:#0a0e13;color:#e7edf5;border:1px solid #2a3340;border-radius:8px;padding:9px;font-size:14px;margin-bottom:10px}
+  .wpjr{display:flex;align-items:center;gap:8px;margin:5px 0}
+  .wpjr span{color:#8a97a8}.wpjr span:first-child{width:28px;font-weight:700;color:#e7edf5}
+  .wpej{flex:1;box-sizing:border-box;background:#0a0e13;color:#e7edf5;border:1px solid #2a3340;border-radius:8px;padding:7px;font-size:14px}
+</style>
+<button id="wpbtn">☆ Waypoints</button>
+<button id="tcpbtn">⧉ TCP</button>
+<button id="wrbtn">✍ Write</button>
+<button id="ctcbtn">🖐 Contact</button>
+<div id="wpov" class="wpov"><div class="wpbox">
+  <div class="wphd"><span>Waypoints</span><button id="wpclose">✕</button></div>
+  <div class="wpbtns"><button class="go" id="wpsave">＋ Save current pose</button><button id="wprefresh">↻ Refresh</button></div>
+  <div id="wplist" class="wplist"></div>
+</div></div>
+<div id="wpeditor" class="wpov"><div class="wpbox">
+  <div class="wphd"><span>Edit waypoint</span></div>
+  <input id="wpename" class="wpin" placeholder="name"/>
+  <div id="wpejoints"></div>
+  <div id="wpepose"></div>
+  <div class="wpbtns"><button class="go" id="wpesave">Save changes</button><button id="wpecancel">Cancel</button></div>
+</div></div>
+<div id="tcpov" class="wpov"><div class="wpbox">
+  <div class="wphd"><span>Tool Center Point (TCP)</span><button id="tcpclose">✕</button></div>
+  <input id="tcpname" class="wpin" placeholder="tool name (e.g. gripper)"/>
+  <label class="in">offset x y z (mm) — from the flange face</label>
+  <div class="g3"><input class="wpej" id="tx" value="0"><input class="wpej" id="ty" value="0"><input class="wpej" id="tz" value="0"></div>
+  <label class="in" style="margin-top:8px">orientation
+    <select id="tmode" class="tsel"><option value="rpy">roll/pitch/yaw (deg)</option><option value="aa">axis-angle rx,ry,rz (deg)</option></select>
+  </label>
+  <div class="g3"><input class="wpej" id="to0" value="0"><input class="wpej" id="to1" value="0"><input class="wpej" id="to2" value="0"></div>
+  <label class="in" style="margin-top:8px">payload mass (kg)</label>
+  <input class="wpin" id="tpl" value="0"/>
+  <label class="in">payload centre of gravity x y z (mm) — from the flange face</label>
+  <div class="g3"><input class="wpej" id="tc0" value="0"><input class="wpej" id="tc1" value="0"><input class="wpej" id="tc2" value="0"></div>
+  <div class="wpbtns" style="margin-top:12px"><button class="go" id="tcpapply">Apply TCP</button><button id="tcpreset">Reset to flange</button></div>
+  <div class="wphd" style="font-size:13px;margin:10px 0 6px;border-top:1px solid #2a3340;padding-top:10px"><span>Saved tool configs</span></div>
+  <small style="display:block;color:#8a97a8;margin-bottom:6px">Save the tool defined above (manual or teach‑solved) as a named config. Click <b>Apply</b> to load one onto the robot; ✕ to delete. Blank/duplicate names auto‑number so every save is kept. Shared across UIs and persists across restarts.</small>
+  <div class="wpbtns"><button class="go" id="toolsave">＋ Save current</button><button id="tooleditcancel" style="display:none">Cancel edit</button><button id="toolrefresh">↻ Refresh</button></div>
+  <div id="toollib" class="wplist" style="margin-top:8px"></div>
+  <div class="wphd" style="font-size:13px;margin:6px 0 6px;border-top:1px solid #2a3340;padding-top:10px"><span>4‑point teach (tool tip → one fixed point)</span></div>
+  <small style="display:block;color:#8a97a8;margin-bottom:6px">Jog the tool tip onto the same fixed point from ≥4 different orientations; capture each. Solves the offset by least squares.</small>
+  <div class="wpbtns"><button id="tcpcap">Capture point (<b id="tcpn">0</b>)</button><button id="tcpsolve" class="go">Solve &amp; apply</button><button id="tcpclr">Clear</button></div>
+  <div id="tcpstat" style="font-size:12px;color:#8a97a8;min-height:16px"></div>
+  <div class="wphd" style="font-size:13px;margin:6px 0 6px;border-top:1px solid #2a3340;padding-top:10px"><span>Orientation teach (point along the tool axes)</span></div>
+  <small style="display:block;color:#8a97a8;margin-bottom:6px">Do this after the offset. Keep the flange orientation FIXED (translate only, base‑frame jog): capture <b>Ref</b>, then jog the tip a few cm along the tool's pointing/approach axis and capture <b>+Z</b>. Optional: jog along the tool's +X and capture <b>+X</b> (skip for a round marker — roll is free).</small>
+  <div class="wpbtns"><button id="tori_ref">⬤ Ref <b id="tori_r">–</b></button><button id="tori_z">↑ +Z <b id="tori_zc">–</b></button><button id="tori_x">→ +X <b id="tori_xc">–</b></button></div>
+  <div class="wpbtns"><button id="tori_solve" class="go">Solve orientation &amp; apply</button><button id="tori_clr">Clear</button></div>
+  <div id="tori_stat" style="font-size:12px;color:#8a97a8;min-height:16px"></div>
+</div></div>
+<div id="ctcov" class="wpov"><div class="wpbox">
+  <div class="wphd"><span>Physical‑contact detection</span><button id="ctcclose">✕</button></div>
+  <small style="display:block;color:#8a97a8;margin-bottom:10px">Sensorless contact detection: the drives' measured joint torque is compared against the dynamic model (gravity + inertia + friction + payload). An unexplained <b>external torque</b> means the arm touched something → protective stop. This is a <b>software</b> monitor and does <b>not</b> replace the hardware E‑STOP / STO.</small>
+  <div class="wpjr"><span style="width:auto">Detector</span><span style="flex:1"></span><button id="ctctgl" style="background:#5a1f1f">OFF</button></div>
+  <small style="display:block;color:#8a97a8;margin:2px 0 6px">Off by default — turn on only after tuning on your arm, or it may nuisance‑stop the drives. The hardware E‑STOP/STO protects the arm regardless.</small>
+  <label class="in" style="margin-top:10px">Sensitivity <b id="ctcsv">50%</b> <small style="color:#8a97a8">(higher = trips on lighter contact)</small></label>
+  <input id="ctcsens" type="range" min="0" max="100" value="50" style="width:100%">
+  <div style="display:flex;justify-content:space-between;color:#8a97a8;font-size:11px"><span>rugged (fewer false trips)</span><span>sensitive</span></div>
+  <div class="wphd" style="font-size:13px;margin:12px 0 6px;border-top:1px solid #2a3340;padding-top:10px"><span>External torque (N·m, model residual)</span></div>
+  <div id="ctcext" style="font-size:12px;color:#8a97a8;min-height:16px">—</div>
+  <div class="wphd" style="font-size:13px;margin:12px 0 6px;border-top:1px solid #2a3340;padding-top:10px"><span>Test (simulator only)</span></div>
+  <small style="display:block;color:#8a97a8;margin-bottom:6px">Injects a fake external torque on a joint to verify the protective stop fires. No effect on real hardware.</small>
+  <div class="wpjr"><span style="width:auto">joint</span>
+    <select id="ctcpj" class="tsel"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option></select>
+    <button id="ctcpoke">Poke</button></div>
+</div></div>
+<div id="wrov" class="wpov"><div class="wpbox">
+  <div class="wphd"><span>✍ Robot writing</span><button id="wrclose">✕</button></div>
+  <label class="in">text (the marker draws this; newlines = new line)</label>
+  <textarea id="wrtext" placeholder="HELLO WORLD">INTEGRA</textarea>
+  <div class="g3" style="margin-top:8px">
+    <div><label class="in">letter height (mm)</label><input class="wpej" id="wrh" value="25"></div>
+    <div><label class="in">pen‑up (mm)</label><input class="wpej" id="wrup" value="15"></div>
+    <div><label class="in">draw speed (mm/s)</label><input class="wpej" id="wrspd" value="40"></div>
+  </div>
+  <label class="in" style="margin-top:8px">alignment
+    <select id="wralign" class="tsel"><option value="left">left</option><option value="center">center</option><option value="right">right</option></select>
+  </label>
+  <div class="wphd" style="font-size:13px;border-top:1px solid #2a3340;padding-top:10px;margin:10px 0 6px"><span>Writing plane (paper)</span></div>
+  <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+    <select id="wrplane" class="tsel" style="flex:1"><option value="">▸ current tool‑tip pose</option></select>
+    <button id="wrpsel">Use</button><button id="wrpdel" title="delete selected plane">✕</button>
+  </div>
+  <small style="display:block;color:#8a97a8;margin-bottom:6px"><b>3‑point teach:</b> configure the marker in ⧉ TCP, then jog the tip to the paper's <b>bottom‑left</b>, <b>bottom‑right (+X)</b>, and <b>top‑left (+Y)</b> corners, capturing each.</small>
+  <div class="wpbtns">
+    <button id="wrcap0">⬤ Origin <b id="wrc0">–</b></button>
+    <button id="wrcapx">▶ +X <b id="wrcx">–</b></button>
+    <button id="wrcapy">▲ +Y <b id="wrcy">–</b></button>
+  </div>
+  <div style="display:flex;gap:6px;margin-bottom:8px">
+    <input id="wrpname" class="wpej" placeholder="plane name" style="flex:1">
+    <button id="wrpsave" class="go">Save 3‑pt</button>
+    <button id="wrpsavecur" title="save the current tool-tip pose as a plane">Save pose</button>
+  </div>
+  <div class="wphd" style="font-size:12px;color:#f5d9a8;margin:8px 0 4px"><span>🎯 Auto‑detect plane (touch probe)</span></div>
+  <small style="display:block;color:#8a97a8;margin-bottom:6px"><b>Fully automated from joints‑0:</b> goes to the joints‑0 home, moves to a fixed pose holding the marker <b>perpendicular to the base (pen straight down)</b> over the front of the robot, descends <b>straight down until it touches the table</b> (coarse then fine, contact‑sensed so the tip isn't damaged), then builds &amp; activates a <b>level writing plane</b> at that height. Put your paper under that front spot.</small>
+  <div class="wpjr"><span style="width:auto">plane&nbsp;mm</span>
+    <input id="prw" class="wpej" value="120" style="width:56px" title="width"> ×
+    <input id="prh" class="wpej" value="60" style="width:56px" title="height">
+    <span style="width:auto">drop&nbsp;mm</span><input id="prdrop" class="wpej" value="250" style="width:56px" title="max search depth"></div>
+  <div class="wpjr"><span style="width:auto">sensitivity</span><input id="prsens" type="range" min="50" max="98" value="90" style="flex:1"><b id="prsv" style="width:34px">90%</b></div>
+  <small style="display:block;color:#f5d9a8;margin:4px 0"><b>One-time setup:</b> jog the marker so it's <b>perpendicular (pen straight down)</b> over your paper, then click <b>Set ready pose</b> — Auto‑detect will go to exactly that pose (uses the robot's own joints, so no orientation flip).</small>
+  <div class="wpbtns"><button id="prset">⤓ Set ready pose (from current)</button></div>
+  <div class="wpbtns"><button id="prgo" class="go">🎯 Auto‑detect plane</button><button id="prstop" class="danger">Stop</button></div>
+  <div id="prstat" style="font-size:12px;color:#8a97a8;min-height:16px"></div>
+  <div class="wpbtns"><button id="wrprev">Preview</button><button id="wrgo" class="go">✍ Write</button><button id="wrstop" class="danger">Stop</button></div>
+  <div id="wrstat" style="font-size:12px;color:#8a97a8;min-height:16px"></div>
+</div></div>
+<script>
+(function(){
+  function esc(s){return (s||"").replace(/[<>&"]/g,function(c){return({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'})[c];});}
+  function spd(){var e=$("sp");return Math.max(0.05,(e?+e.value:30)/100);}
+  var WPS=[], editId=null;
+  window.wpRender=function(list){ if(list)WPS=list; window._wps=WPS; var el=$("wplist"); if(!el)return;
+    if(!WPS.length){ el.innerHTML='<div class="wphint">No waypoints yet. Move the arm to a pose, then “Save current pose”.</div>'; return; }
+el.innerHTML = WPS.map(function(w){
+
+  let pos = "--";
+  let rot = "--";
+
+  if(w.pose){
+    pos = `${w.pose.pos.x.toFixed(3)}, ${w.pose.pos.y.toFixed(3)}, ${w.pose.pos.z.toFixed(3)}`;
+    rot = `${w.pose.rot.roll.toFixed(2)}, ${w.pose.rot.pitch.toFixed(2)}, ${w.pose.rot.yaw.toFixed(2)}`;
+  }
+
+  return `
+    <div class="wprow" style="flex-direction:column;align-items:flex-start">
+      <div style="display:flex;width:100%;align-items:center;flex-wrap:wrap;gap:4px">
+        <span class="wpnm">${esc(w.name)}</span>
+        <button class="wgo" data-go="${w.id}">Go</button>
+        <button data-ed="${w.id}">Edit</button>
+        <button data-rn="${w.id}">Rename</button>
+        <button data-sa="${w.id}">Save as</button>
+        <button class="wdel" data-del="${w.id}">✕</button>
+      </div>
+
+      <div style="font-size:12px;color:#8a97a8;margin-top:4px">
+        Pos: ${pos}
+      </div>
+
+      <div style="font-size:12px;color:#8a97a8">
+        RPY: ${rot}
+      </div>
+    </div>
+  `;
+}).join("");
+    el.querySelectorAll("[data-go]").forEach(function(b){b.onclick=function(){send({cmd:"wp_goto",id:b.getAttribute("data-go"),speed:spd(),accel:accel()});log("→ goto waypoint","mut");};});
+    el.querySelectorAll("[data-ed]").forEach(function(b){b.onclick=function(){openEdit(b.getAttribute("data-ed"));};});
+    el.querySelectorAll("[data-del]").forEach(function(b){b.onclick=function(){var id=b.getAttribute("data-del");var w=WPS.filter(function(x){return x.id===id;})[0];if(confirm("Delete “"+(w?w.name:"")+"”?"))send({cmd:"wp_delete",id:id});};});
+    el.querySelectorAll("[data-rn]").forEach(function(b){b.onclick=function(){var id=b.getAttribute("data-rn");var w=WPS.filter(function(x){return x.id===id;})[0];if(!w)return;var nn=prompt("Rename waypoint",w.name);if(nn===null)return;nn=nn.trim();if(!nn)return;
+      if(WPS.some(function(x){return x.id!==id&&String(x.name||"").trim().toLowerCase()===nn.toLowerCase();})){if(window.safetyToast)safetyToast("wpexist","warn",'<b>Name already exists</b><div class="tsub">A waypoint named “'+nn+'” already exists.</div>',{timeout:5000});return;}
+      send({cmd:"wp_update",id:id,name:nn});log("→ rename waypoint","mut");};});
+    el.querySelectorAll("[data-sa]").forEach(function(b){b.onclick=function(){var id=b.getAttribute("data-sa");var w=WPS.filter(function(x){return x.id===id;})[0];if(!w)return;var nn=prompt("Save as — new waypoint name",w.name+" copy");if(nn===null)return;nn=nn.trim();if(!nn)return;
+      if(WPS.some(function(x){return String(x.name||"").trim().toLowerCase()===nn.toLowerCase();})){if(window.safetyToast)safetyToast("wpexist","warn",'<b>Name already exists</b><div class="tsub">A waypoint named “'+nn+'” already exists.</div>',{timeout:5000});return;}
+      send({cmd:"wp_save",name:nn,q:w.q,pose:w.pose});log("→ save-as waypoint '"+nn+"'","mut");};});
+  };
+function openEdit(id){
+
+  var w=WPS.filter(function(x){
+    return x.id===id;
+  })[0];
+
+  if(!w) return;
+
+  editId=id;
+
+  $("wpename").value=w.name;
+
+  $("wpejoints").innerHTML =
+    w.q.map(function(v,i){
+      return `
+      <div class="wpjr">
+        <span>J${i+1}</span>
+        <input class="wpej" type="number"
+               step="1"
+               value="${(v*180/Math.PI).toFixed(1)}">
+        <span>°</span>
+      </div>`;
+    }).join("");
+
+  if(w.pose){
+
+    $("wpepose").innerHTML = `
+      <hr>
+
+      <div class="wpjr">
+        <span>X</span>
+        <input id="wpx" class="wpej" value="${w.pose.pos.x}">
+      </div>
+
+      <div class="wpjr">
+        <span>Y</span>
+        <input id="wpy" class="wpej" value="${w.pose.pos.y}">
+      </div>
+
+      <div class="wpjr">
+        <span>Z</span>
+        <input id="wpz" class="wpej" value="${w.pose.pos.z}">
+      </div>
+
+      <div class="wpjr">
+        <span>R</span>
+        <input id="wpr" class="wpej" value="${w.pose.rot.roll}">
+      </div>
+
+      <div class="wpjr">
+        <span>P</span>
+        <input id="wpp" class="wpej" value="${w.pose.rot.pitch}">
+      </div>
+
+      <div class="wpjr">
+        <span>Y</span>
+        <input id="wpyaw" class="wpej" value="${w.pose.rot.yaw}">
+      </div>
+    `;
+
+  } else {
+    $("wpepose").innerHTML="";
+  }
+
+  $("wpeditor").style.display="flex";
+}
+    $("wpbtn").onclick=function(){ send({cmd:"wp_list"}); $("wpov").style.display="flex"; };
+  $("wpclose").onclick=function(){ $("wpov").style.display="none"; };
+  $("wprefresh").onclick=function(){ send({cmd:"wp_list"}); };
+$("wpsave").onclick=function(){
+  var name=prompt("Name this waypoint","");
+  if(name===null)return;
+  var nm=(name||"").trim(), list=window._wps||[];
+  if(nm && list.some(function(w){return String(w.name||"").trim().toLowerCase()===nm.toLowerCase();})){
+    if(window.safetyToast)safetyToast("wpexist","warn",'<b>Name already exists</b><div class="tsub">A waypoint named “'+nm+'” already exists. Choose a different name.</div>',{timeout:5000});
+    return; }
+  send({cmd:"wp_save",name:name});
+};
+$("wpesave").onclick=function(){
+
+  var q=[].slice.call(
+    document.querySelectorAll("#wpejoints .wpej")
+  ).map(function(e){
+    return (+e.value)*Math.PI/180;
+  });
+
+  var msg = { cmd:"wp_update", id:editId, name:$("wpename").value, q:q };
+
+  // only send pose if this waypoint actually has pose inputs (legacy waypoints don't)
+  if($("wpx")){
+    msg.pose = {
+      pos:{ x:+$("wpx").value, y:+$("wpy").value, z:+$("wpz").value },
+      rot:{ roll:+$("wpr").value, pitch:+$("wpp").value, yaw:+$("wpyaw").value }
+    };
+  }
+
+  send(msg);
+
+  $("wpeditor").style.display="none";
+};  $("wpecancel").onclick=function(){ $("wpeditor").style.display="none"; };
+})();
+</script>
+
+<!-- ===== live drive telemetry (temperature / current / voltage / torque / brake) ===== -->
+<style>
+  #tlbtn{position:fixed;left:16px;bottom:16px;z-index:30;background:#1b2230;color:#cfe8ff;border:1px solid #2a3340;border-radius:10px;padding:10px 16px;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,.5)}
+  .tltab{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  .tltab th,.tltab td{padding:7px 8px;text-align:right;border-bottom:1px solid #232c38;font-size:13px}
+  .tltab th{color:#8a97a8;font-weight:600}
+  .tltab td:first-child,.tltab th:first-child{text-align:left;font-weight:700;color:#e7edf5}
+</style>
+<button id="tlbtn">📊 Telemetry</button>
+<div id="tlov" class="wpov"><div class="wpbox">
+  <div class="wphd"><span>Drive telemetry</span><button id="tlclose">✕</button></div>
+  <div id="tltbl"></div>
+  <div class="wphint">τ = measured torque (% of joint rated). Brake ◯ released · ▬ held.</div>
+</div></div>
+<script>
+(function(){
+  function col(v,warn,bad){return v>=bad?'#ff6b6b':v>=warn?'#ffd166':'#cfe8ff';}
+  window.tlRender=function(m){ var el=document.getElementById("tltbl"); if(!el)return;
+    if(!m||!m.temp){ el.innerHTML='<div class="wphint">Connect to see live drive telemetry.</div>'; return; }
+    var r=''; for(var i=0;i<6;i++){ var tq=Math.abs(m.torque_meas[i]);
+      r+='<tr><td>J'+(i+1)+'</td>'+
+         '<td style="color:'+col(m.temp[i],55,70)+'">'+m.temp[i].toFixed(1)+'</td>'+
+         '<td>'+m.current[i].toFixed(2)+'</td>'+
+         '<td>'+m.voltage[i].toFixed(1)+'</td>'+
+         '<td style="color:'+col(tq,80,100)+'">'+m.torque_meas[i].toFixed(0)+'%</td>'+
+         '<td>'+(m.brake[i]?'◯':'▬')+'</td></tr>'; }
+    el.innerHTML='<table class="tltab"><tr><th>Jt</th><th>°C</th><th>A</th><th>V</th><th>τ</th><th>Brk</th></tr>'+r+'</table>'; };
+  document.getElementById("tlbtn").onclick=function(){ document.getElementById("tlov").style.display="flex"; window.tlRender(window._tlState); };
+  document.getElementById("tlclose").onclick=function(){ document.getElementById("tlov").style.display="none"; };
+  setInterval(function(){ var o=document.getElementById("tlov"); if(o&&o.style.display==="flex") window.tlRender(window._tlState); },300);
+})();
+</script>
+
+<!-- ===== safety popups: collision possibility / collision stop / singularity / IK fail ===== -->
+<style>
+  /* corner container never blocks the UI; only the toast cards are interactive */
+  #stoasts{position:fixed;left:12px;bottom:56px;z-index:60;display:flex;flex-direction:column-reverse;gap:8px;
+           width:300px;max-width:40vw;pointer-events:none;}
+  .stoast{pointer-events:auto;background:#161c26;border:1px solid #2a3340;border-left-width:4px;border-radius:10px;
+          padding:10px 12px;color:#e7edf5;box-shadow:0 4px 16px rgba(0,0,0,.55);font-size:13px;line-height:1.35;
+          opacity:0;transform:translateX(-12px);transition:opacity .18s ease,transform .18s ease;}
+  .stoast.show{opacity:1;transform:none;}
+  .stoast.warn{border-left-color:#ffcf66;} .stoast.danger{border-left-color:#ff5d5d;} .stoast.info{border-left-color:#39b0ff;}
+  .stoast .ttext b{display:block;margin-bottom:2px;} .stoast .tsub{color:#9aa7b8;font-size:12px;margin-top:2px;}
+  .stoast .tact{display:flex;gap:6px;margin-top:8px;} .stoast .tact:empty{display:none;}
+  .stoast .tact button{flex:1;background:#1b2230;color:#e7edf5;border:1px solid #2a3340;border-radius:7px;padding:6px 8px;font-size:12px;cursor:pointer;}
+  .stoast .tact button.danger{background:#5e1620;border-color:#90242f;color:#ffd9d9;}
+  .stoast .tact button.go{background:#13476e;border-color:#1e6ea5;}
+</style>
+<div id="stoasts"></div>
+<script>
+(function(){
+  var box=document.getElementById("stoasts"), live={};
+  function tx(){ return (typeof send==="function")?send:function(){}; }
+  function removeToast(id){ var r=live[id]; if(!r)return; var el=r.el; el.classList.remove("show");
+    if(r.timer)clearTimeout(r.timer); setTimeout(function(){ if(el.parentNode)el.parentNode.removeChild(el); },200); delete live[id]; }
+  // create/update a toast by id; text updates freely, action buttons rebuilt only when they change (no flicker)
+  window.safetyToast=function(id,kind,html,opts){
+    opts=opts||{}; var r=live[id];
+    if(!r){ var t=document.createElement("div"); t.className="stoast "+kind;
+      t.innerHTML='<div class="ttext"></div><div class="tact"></div>'; box.appendChild(t);
+      r={el:t,text:t.querySelector(".ttext"),act:t.querySelector(".tact"),sig:null,timer:null}; live[id]=r;
+      requestAnimationFrame(function(){ t.classList.add("show"); }); }
+    r.el.className="stoast show "+kind; r.text.innerHTML=html;
+    var sig=JSON.stringify((opts.actions||[]).map(function(a){return a.label+(a.cls||"");}));
+    if(sig!==r.sig){ r.sig=sig;
+      r.act.innerHTML=(opts.actions||[]).map(function(a,i){return '<button data-i="'+i+'" class="'+(a.cls||"")+'">'+a.label+'</button>';}).join("");
+      (opts.actions||[]).forEach(function(a,i){ var b=r.act.querySelector('[data-i="'+i+'"]'); if(b)b.onclick=a.fn; }); }
+    if(r.timer){clearTimeout(r.timer);r.timer=null;}
+    if(opts.timeout) r.timer=setTimeout(function(){removeToast(id);},opts.timeout);
+  };
+  window.safetyDismiss=removeToast;
+
+  var NM=["base","shoulder","upper arm","forearm","wrist 1","wrist 2","tool"];
+  function pair(m){ var p=m.coll_pair||[0,0]; return (NM[p[0]]||"?")+" ↔ "+(NM[p[1]]||"?"); }
+  function mm(m){ return (m.coll_dist!=null)?Math.round(m.coll_dist*1000)+" mm":""; }
+
+  // IK-fail: called from the ack handler when a move/goto comes back not-OK
+  window.ikFailToast=function(m){
+    if(!m||m.ok)return; if(!/move|goto|ptp|lin/i.test(m.cmd||""))return;
+    safetyToast("ik","danger",'<b>Can’t reach that pose</b><div class="tsub">'+(m.message||"IK failed — target unreachable or out of range")+'</div>',{timeout:5000});
+  };
+
+  // collision + singularity: sticky, driven by live state; appear/clear with the flag
+  setInterval(function(){
+    var m=window._tlState; if(!m)return;
+    if(m.coll_stop){
+      safetyToast("coll","danger",'<b>Collision stop — drives disabled</b><div class="tsub">'+pair(m)+' reached '+mm(m)+'. Clear the obstruction, then re-enable.</div>',
+        {actions:[{label:"Re-enable",cls:"go",fn:function(){ tx()({cmd:"enable"}); }}]});
+    } else if(m.coll_warn){
+      safetyToast("coll","warn",'<b>Collision possibility</b><div class="tsub">'+pair(m)+' closing ('+mm(m)+'). Will auto-disable just before contact if it keeps approaching.</div>',
+        {actions:[{label:"Stop",cls:"danger",fn:function(){ tx()({cmd:"stop"}); }},{label:"Disable",cls:"",fn:function(){ tx()({cmd:"disable"}); }}]});
+    } else { safetyDismiss("coll"); }
+    if(m.contact){
+      safetyToast("ctc","danger",'<b>Physical contact — protective stop</b><div class="tsub">External torque on '+(NM[(m.contact_joint||0)]||("J"+((m.contact_joint||0)+1)))+' exceeded the model. Drives disabled. Remove the contact, then re‑enable.</div>',
+        {actions:[{label:"Re-enable",cls:"go",fn:function(){ tx()({cmd:"enable"}); }}]});
+    } else { safetyDismiss("ctc"); }
+    if(m.singular) safetyToast("sing","warn",'<b>Singularity detected</b><div class="tsub">Near a kinematic singularity — Cartesian moves may be inaccurate or jerky. Nudge a joint to recover.</div>',{});
+    else safetyDismiss("sing");
+  },200);
+})();
+</script>
+
+<!-- ===== waypoint program: run a saved sequence, each move gated on completion ===== -->
+<style>
+  #pgbtn{position:fixed;right:16px;bottom:62px;z-index:30;background:#143a2a;color:#9af5c8;border:1px solid #1e6b4a;border-radius:10px;padding:10px 16px;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,.5)}
+  .pglbl{color:#8a97a8;font-size:12px;margin-bottom:6px;}
+  .pglist{display:flex;flex-direction:column;gap:6px;max-height:46vh;overflow:auto;}
+  .pgrow{display:flex;align-items:center;gap:6px;background:#0e141c;border:1px solid #232c38;border-radius:8px;padding:6px 9px;}
+  .pgrow .wpnm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .pgrow button{background:#1b2230;color:#e7edf5;border:1px solid #2a3340;border-radius:7px;padding:5px 9px;cursor:pointer;font-size:12px;}
+  .pgrow .wdel{color:#ff8a8a;}
+  .pgnum{width:18px;color:#8a97a8;font-weight:700;text-align:center;}
+  .pgb{font-size:11px;color:#8a97a8;min-width:54px;text-align:right;} .pgb.run{color:#ffd166;} .pgb.done{color:#39d98a;}
+  .pgts{display:inline-flex;gap:2px;} .pgt{background:#11161e;color:#8a97a8;border:1px solid #2a3340;border-radius:6px;padding:3px 6px;font-size:11px;font-weight:700;cursor:pointer;} .pgt.sel{background:#13476e;color:#fff;border-color:#1e6ea5;}
+  .pgctl{display:flex;align-items:center;gap:8px;margin-top:12px;}
+  .pgctl button{background:#1b2230;color:#e7edf5;border:1px solid #2a3340;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;}
+  .pgctl .go{background:#13476e;border-color:#1e6ea5;} .pgctl .danger{background:#5e1620;border-color:#90242f;color:#ffd9d9;}
+  .pgctl label{color:#cfe8ff;font-size:13px;}
+</style>
+<button id="pgbtn">▶ Program</button>
+<div id="pgov" class="wpov"><div class="wpbox" style="max-width:640px">
+  <div class="wphd"><span>Waypoint program</span><button id="pgclose">✕</button></div>
+  <div style="display:flex;gap:14px">
+    <div style="flex:1;min-width:0">
+      <div class="pglbl">Saved waypoints <button id="pgrefresh" style="float:right;background:#1b2230;color:#e7edf5;border:1px solid #2a3340;border-radius:7px;cursor:pointer">↻</button></div>
+      <div id="pgavail" class="pglist"></div>
+    </div>
+    <div style="flex:1.25;min-width:0">
+      <div class="pglbl">Sequence — top → bottom · <b>J</b> joint · <b>L</b> linear · <b>P</b> pose · <b>C</b> arc (via→next)</div>
+      <div id="pgseq" class="pglist"></div>
+    </div>
+  </div>
+  <div class="pgctl">
+    <label><input type="checkbox" id="pgloop"> loop</label>
+    <span style="flex:1"></span>
+    <button class="go" id="pgrun">▶ Run</button>
+    <button class="danger" id="pgstop">■ Stop</button>
+  </div>
+  <div id="pgstatus" class="wphint">Add waypoints from the left, then Run. Each move finishes (with an ack) before the next begins.</div>
+</div></div>
+<script>
+(function(){
+  function esc(s){return (s||"").replace(/[<>&"]/g,function(c){return({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'})[c];});}
+  function speed(){ var e=$("sp"); return Math.max(0.05,(e?+e.value:30)/100); }
+  var PROG=[], status={}, availSig=null;
+  function avail(){ return window._wps||[]; }
+  function renderAvail(force){
+    var el=$("pgavail"); if(!el)return; var ws=avail();
+    var sig=ws.map(function(w){return w.id+w.name;}).join("|"); if(!force && sig===availSig)return; availSig=sig;
+    el.innerHTML = ws.length ? ws.map(function(w){ return '<div class="pgrow"><span class="wpnm">'+esc(w.name)+'</span><button data-add="'+w.id+'">＋ add</button></div>'; }).join("")
+                             : '<div class="wphint">No saved waypoints yet — create some in the Waypoints panel.</div>';
+    el.querySelectorAll("[data-add]").forEach(function(b){ b.onclick=function(){ var w=avail().filter(function(x){return x.id===b.getAttribute("data-add");})[0]; if(w){ PROG.push({id:w.id,name:w.name,type:"j"}); renderSeq(); } }; });
+  }
+  function badge(i){ var s=status[i]; if(s==="run")return '<span class="pgb run">▶ running</span>'; if(s==="done")return '<span class="pgb done">✓ done</span>'; return '<span class="pgb">· waiting</span>'; }
+  function typeSel(i,t){ return '<span class="pgts">'+["j","l","p","c"].map(function(k){
+      return '<button class="pgt'+(k===t?" sel":"")+'" data-t="'+i+":"+k+'" title="'+({j:"joint move",l:"straight-line (linear)",p:"to pose via IK (PTP)",c:"circular arc: this waypoint = via, next waypoint = end"})[k]+'">'+k.toUpperCase()+'</button>'; }).join("")+'</span>'; }
+  function renderSeq(){
+    var el=$("pgseq"); if(!el)return;
+    el.innerHTML = PROG.length ? PROG.map(function(s,i){ return '<div class="pgrow"><span class="pgnum">'+(i+1)+'</span><span class="wpnm">'+esc(s.name)+'</span>'+typeSel(i,s.type||"j")+badge(i)+
+        '<button data-up="'+i+'">↑</button><button data-dn="'+i+'">↓</button><button class="wdel" data-rm="'+i+'">✕</button></div>'; }).join("")
+      : '<div class="wphint">Empty. Add waypoints from the left to build a path.</div>';
+    el.querySelectorAll("[data-t]").forEach(function(b){b.onclick=function(){var pr=b.getAttribute("data-t").split(":"); PROG[+pr[0]].type=pr[1]; renderSeq();};});
+    el.querySelectorAll("[data-up]").forEach(function(b){b.onclick=function(){var i=+b.getAttribute("data-up"); if(i>0){var t=PROG[i-1];PROG[i-1]=PROG[i];PROG[i]=t; renderSeq();}};});
+    el.querySelectorAll("[data-dn]").forEach(function(b){b.onclick=function(){var i=+b.getAttribute("data-dn"); if(i<PROG.length-1){var t=PROG[i+1];PROG[i+1]=PROG[i];PROG[i]=t; renderSeq();}};});
+    el.querySelectorAll("[data-rm]").forEach(function(b){b.onclick=function(){PROG.splice(+b.getAttribute("data-rm"),1); renderSeq();};});
+  }
+  function setStatus(t){ var el=$("pgstatus"); if(el)el.textContent=t; }
+  // single Run/Pause/Resume control on #pgrun: idle -> "▶ Run", running -> "⏸ Pause", paused -> "▶ Resume"
+  var progState="idle";   // idle | running | paused
+  function setRunBtn(){ var b=$("pgrun"); if(!b)return;
+    if(progState==="running"){ b.textContent="⏸ Pause"; b.classList.remove("go"); }
+    else if(progState==="paused"){ b.textContent="▶ Resume"; b.classList.add("go"); }
+    else { b.textContent="▶ Run"; b.classList.add("go"); } }
+  window.progEvent=function(m){ var e=m.event; if(window._palStatus)window._palStatus(m);
+    if(e==="accepted"||e==="start"){ status={}; progState="running"; setRunBtn(); setStatus("running…"); renderSeq(); }
+    else if(e==="step_start"){ status[m.index]="run"; setStatus((progState==="paused"?"⏸ pausing — will hold after ":"→ moving to ")+m.name+" ("+(m.index+1)+"/"+PROG.length+")"); renderSeq(); }
+    else if(e==="step_done"){ status[m.index]="done"; setStatus("✓ reached "+m.name); renderSeq(); }
+    else if(e==="paused"){ progState="paused"; setRunBtn(); setStatus("⏸ paused — holds at the current waypoint; press Resume to continue"); }
+    else if(e==="resumed"){ progState="running"; setRunBtn(); setStatus("▶ resuming…"); }
+    else if(e==="loop"){ status={}; setStatus("loop "+m.cycle+" …"); renderSeq(); }
+    else if(e==="done"){ progState="idle"; setRunBtn(); setStatus("✓ program complete"); if(window.safetyToast)safetyToast("prog","info","<b>Program complete</b>",{timeout:4000}); }
+    else if(e==="aborted"){ progState="idle"; setRunBtn(); setStatus("■ stopped"); }
+    else if(e==="note"){ if(typeof log==="function")log(m.message||"","mut"); }
+    else if(e==="error"){ progState="idle"; setRunBtn(); setStatus("✕ "+(m.message||"error")); if(window.safetyToast)safetyToast("prog","danger",'<b>Program stopped</b><div class="tsub">'+(m.message||"")+'</div>',{timeout:6000}); }
+  };
+  $("pgbtn").onclick=function(){ send({cmd:"wp_list"}); renderAvail(true); renderSeq(); $("pgov").style.display="flex"; };
+  $("pgclose").onclick=function(){ $("pgov").style.display="none"; };
+  $("pgrefresh").onclick=function(){ send({cmd:"wp_list"}); setTimeout(function(){renderAvail(true);},150); };
+  $("pgrun").onclick=function(){
+    if(progState==="running"){ send({cmd:"program_pause"}); return; }   // ⏸ pause a running program
+    if(progState==="paused"){ send({cmd:"program_resume"}); return; }    // ▶ resume a paused one
+    if(!PROG.length){ setStatus("add waypoints first"); return; }         // ▶ start
+    status={}; renderSeq();
+    send({cmd:"program_run", steps:PROG.map(function(s){return {id:s.id, type:s.type||"j"};}), speed:speed(), accel:accel(), loop:$("pgloop").checked}); };
+  $("pgstop").onclick=function(){ send({cmd:"program_stop"}); progState="idle"; setRunBtn(); };
+  setInterval(function(){ if($("pgov")&&$("pgov").style.display==="flex") renderAvail(false); }, 700);
+})();
+</script>
+
+<!-- ===== Motion+ : palletizing pattern generator + circular arc (MoveC) ===== -->
+<style>
+  #mbtn{position:fixed;right:16px;bottom:108px;z-index:30;background:#3a2a14;color:#f5d29a;border:1px solid #6b4a1e;border-radius:10px;padding:10px 16px;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,.5)}
+  .mrow{display:flex;align-items:center;gap:6px;margin:7px 0;flex-wrap:wrap}
+  .mrow label{color:#8a97a8;font-size:12px}
+  .mrow input,.mrow select{background:#0a0e13;color:#e7edf5;border:1px solid #2a3340;border-radius:7px;padding:6px;font-size:13px;width:58px}
+  .mrow select{width:auto}
+  .mrow button{background:#1b2230;color:#e7edf5;border:1px solid #2a3340;border-radius:7px;padding:7px 11px;cursor:pointer;font-size:13px}
+</style>
+<button id="mbtn">▦ Motion+</button>
+<div id="mov" class="wpov"><div class="wpbox" style="max-width:480px">
+  <div class="wphd"><span>Motion + &nbsp;<small style="color:#8a97a8;font-weight:400">palletizing · circular arc</small></span><button id="mclose">✕</button></div>
+  <div class="pglbl">Palletizing — teach a <b>PICK</b> and a pallet <b>CORNER</b> waypoint, set the grid; each cell runs pick→approach→place→retract, gated.</div>
+  <div class="mrow"><label>Pick</label><select id="mpick"></select><label>Corner</label><select id="mcorner"></select></div>
+  <div class="mrow"><label>Grid&nbsp;X</label><input id="mnx" type="number" value="2" min="1"><label>Y</label><input id="mny" type="number" value="2" min="1"><label>Layers</label><input id="mnz" type="number" value="1" min="1"><span style="flex:1"></span>cells:&nbsp;<b id="mcells">4</b></div>
+  <div class="mrow"><label>Pitch mm&nbsp;X</label><input id="mdx" type="number" value="60"><label>Y</label><input id="mdy" type="number" value="60"><label>Z</label><input id="mdz" type="number" value="50"></div>
+  <div class="mrow"><label>Approach mm</label><input id="mapp" type="number" value="50"><label>Order</label><select id="morder"><option value="row">row</option><option value="snake">snake</option></select></div>
+  <div class="pgctl"><button class="go" id="mrun">▶ Run pallet</button><button class="danger" id="mstop">■ Stop</button><span style="flex:1"></span><span id="palstat" class="wphint">idle</span></div>
+  <hr style="border:0;border-top:1px solid #2a3340;margin:12px 0">
+  <div class="pglbl">Circular arc (MoveC) — jog to the via point, snap it; jog to the end, snap it; run an arc through both.</div>
+  <div class="mrow"><button id="msnapvia">Snap via = here</button><span id="mvia" class="wphint">—</span></div>
+  <div class="mrow"><button id="msnapend">Snap end = here</button><span id="mend" class="wphint">—</span></div>
+  <div class="pgctl"><label style="color:#cfe8ff;font-size:13px"><input type="checkbox" id="mfull"> full circle</label><button class="go" id="marc">◠ Run arc</button><span style="flex:1"></span><span id="arcstat" class="wphint"></span></div>
+  <hr style="border:0;border-top:1px solid #2a3340;margin:12px 0">
+  <div class="pglbl">Relative move — nudge from the current pose by a delta (straight line), in base or tool frame</div>
+  <div class="mrow"><label>Δ mm&nbsp;X</label><input id="mrx" type="number" value="0"><label>Y</label><input id="mry" type="number" value="0"><label>Z</label><input id="mrz" type="number" value="-50"><label>frame</label><select id="mrframe"><option value="base">base</option><option value="tool">tool</option></select><button class="go" id="mrelgo">Go</button></div>
+</div></div>
+<script>
+(function(){
+  function esc(s){return (s||"").replace(/[<>&"]/g,function(c){return({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'})[c];});}
+  function speed(){var e=$("sp");return Math.max(0.05,(e?+e.value:30)/100);}
+  function opts(){ var ws=window._wps||[]; return '<option value="">—</option>'+ws.map(function(w){return '<option value="'+w.id+'">'+esc(w.name)+'</option>';}).join(""); }
+  function fill(){ var p=$("mpick"),c=$("mcorner"); if(!p)return; var pv=p.value,cv=c.value,o=opts(); p.innerHTML=o;c.innerHTML=o; if(pv)p.value=pv; if(cv)c.value=cv; updcells(); }
+  function updcells(){ $("mcells").textContent=(+$("mnx").value)*(+$("mny").value)*(+$("mnz").value); }
+  window._palStatus=function(m){ var s=$("palstat"); if(!s)return; var e=m.event;
+    if(e==="accepted") s.textContent="running… "+(m.cells||"?")+" cells / "+(m.n||"?")+" moves";
+    else if(e==="step_start") s.textContent="▶ "+(m.name||"")+(m.move?" ["+m.move.toUpperCase()+"]":"");
+    else if(e==="step_done") s.textContent="✓ "+(m.name||"");
+    else if(e==="done") s.textContent="✓ complete"; else if(e==="aborted") s.textContent="■ stopped";
+    else if(e==="error") s.textContent="✕ "+(m.message||"error"); };
+  var via=null,end=null;
+  function snap(which){ var m=window._tlState; if(!m||!m.flange)return; var f=m.flange;
+    var pose={pos:f.pos.slice(),quat:f.quat.slice()};
+    if(which==="via"){via=pose;$("mvia").textContent="("+via.pos.map(function(v){return v.toFixed(3);}).join(", ")+")";}
+    else{end=pose;$("mend").textContent="("+end.pos.map(function(v){return v.toFixed(3);}).join(", ")+")";} }
+  $("mbtn").onclick=function(){ send({cmd:"wp_list"}); setTimeout(fill,150); $("mov").style.display="flex"; };
+  $("mclose").onclick=function(){ $("mov").style.display="none"; };
+  ["mnx","mny","mnz"].forEach(function(id){ $(id).oninput=updcells; });
+  $("mrun").onclick=function(){ if(!$("mpick").value||!$("mcorner").value){$("palstat").textContent="pick & corner required";return;}
+    send({cmd:"pallet_run",pick:$("mpick").value,corner:$("mcorner").value,nx:+$("mnx").value,ny:+$("mny").value,nz:+$("mnz").value,
+      dx:(+$("mdx").value)/1000,dy:(+$("mdy").value)/1000,dz:(+$("mdz").value)/1000,approach:(+$("mapp").value)/1000,order:$("morder").value,speed:speed(),accel:accel()}); };
+  $("mstop").onclick=function(){ send({cmd:"program_stop"}); };
+  $("msnapvia").onclick=function(){ snap("via"); };
+  $("msnapend").onclick=function(){ snap("end"); };
+  $("marc").onclick=function(){ if(!via||!end){$("arcstat").textContent="snap via and end first";return;} send({cmd:"move_c",via:via,end:end,full:$("mfull").checked,speed:speed(),accel:accel()}); $("arcstat").textContent=$("mfull").checked?"running full circle…":"running arc…"; };
+  $("mrelgo").onclick=function(){ send({cmd:"move_rel",delta:[(+$("mrx").value)/1000,(+$("mry").value)/1000,(+$("mrz").value)/1000],frame:$("mrframe").value,speed:speed(),accel:accel()}); };
+})();
+</script>
+<script>
+/* ---- Tool Center Point (TCP) panel ---- */
+(function(){
+  var DEG=Math.PI/180, caps=[];
+  function $(id){return document.getElementById(id);}
+  function esc(s){return (s||"").replace(/[<>&"]/g,function(c){return({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'})[c];});}
+  function show(on){ $("tcpov").style.display=on?"flex":"none"; if(on){ send({cmd:"get_tcp"}); send({cmd:"tool_list"}); } }
+  $("tcpbtn").onclick=function(){ show(true); };
+  $("tcpclose").onclick=function(){ show(false); };
+
+  // quaternion <-> rpy/axis-angle (deg in the UI)
+  function rpyToQuat(r,p,y){ r*=DEG;p*=DEG;y*=DEG;
+    var cr=Math.cos(r/2),sr=Math.sin(r/2),cp=Math.cos(p/2),sp=Math.sin(p/2),cy=Math.cos(y/2),sy=Math.sin(y/2);
+    return [cr*cp*cy+sr*sp*sy, sr*cp*cy-cr*sp*sy, cr*sp*cy+sr*cp*sy, cr*cp*sy-sr*sp*cy]; }
+  function aaToQuat(rx,ry,rz){ rx*=DEG;ry*=DEG;rz*=DEG; var th=Math.hypot(rx,ry,rz);
+    if(th<1e-9)return[1,0,0,0]; var s=Math.sin(th/2); return [Math.cos(th/2),rx/th*s,ry/th*s,rz/th*s]; }
+  function quatToRpy(q){ var w=q[0],x=q[1],y=q[2],z=q[3];
+    var roll=Math.atan2(2*(w*x+y*z),1-2*(x*x+y*y));
+    var pitch=Math.asin(Math.max(-1,Math.min(1,2*(w*y-z*x))));
+    var yaw=Math.atan2(2*(w*z+x*y),1-2*(y*y+z*z)); return [roll/DEG,pitch/DEG,yaw/DEG]; }
+  function quatToAA(q){ var w=Math.max(-1,Math.min(1,q[0])); var th=2*Math.acos(w); var s=Math.sqrt(1-w*w);
+    if(s<1e-9)return[0,0,0]; return [q[1]/s*th/DEG,q[2]/s*th/DEG,q[3]/s*th/DEG]; }
+
+  // fill the panel from a stored TCP record {name,pos[m],quat,payload,cog[m]}
+  window.tcpFill=function(t){ if(!t)return;
+    $("tcpname").value=t.name||"tool";
+    $("tx").value=(t.pos[0]*1000).toFixed(1); $("ty").value=(t.pos[1]*1000).toFixed(1); $("tz").value=(t.pos[2]*1000).toFixed(1);
+    var o = $("tmode").value==="aa" ? quatToAA(t.quat) : quatToRpy(t.quat);
+    $("to0").value=o[0].toFixed(2); $("to1").value=o[1].toFixed(2); $("to2").value=o[2].toFixed(2);
+    $("tpl").value=(t.payload||0);
+    $("tc0").value=(t.cog[0]*1000).toFixed(1); $("tc1").value=(t.cog[1]*1000).toFixed(1); $("tc2").value=(t.cog[2]*1000).toFixed(1);
+  };
+  $("tmode").onchange=function(){ if(window._tcpLast)tcpFill(window._tcpLast); };
+
+  // gather the tool defined by the editor fields -> {name,pos[m],quat,payload,cog[m]} (shared by Apply + Save)
+  function tcpVals(){
+    var o0=+$("to0").value,o1=+$("to1").value,o2=+$("to2").value;
+    var q = $("tmode").value==="aa" ? aaToQuat(o0,o1,o2) : rpyToQuat(o0,o1,o2);
+    return { name:$("tcpname").value||"tool",
+      pos:[(+$("tx").value)/1000,(+$("ty").value)/1000,(+$("tz").value)/1000],
+      quat:q, payload:(+$("tpl").value)||0,
+      cog:[(+$("tc0").value)/1000,(+$("tc1").value)/1000,(+$("tc2").value)/1000] };
+  }
+  function applyTcp(){
+    var msg=Object.assign({cmd:"set_tcp"}, tcpVals());
+    send(msg); log("→ set TCP '"+msg.name+"' ("+(msg.pos.map(function(v){return (v*1000).toFixed(0);}).join(","))+" mm, "+msg.payload+" kg)","mut");
+  }
+  $("tcpapply").onclick=applyTcp;
+
+  // ---- Saved tool configs: multiple named tools (save / apply / delete) via the existing ToolLibrary ----
+  var TOOLS=[], _applyingTool=false, _editTool=null;
+  function setToolEdit(name){
+    _editTool=name||null;
+    var sv=$("toolsave"), cx=$("tooleditcancel");
+    if(_editTool){ if(sv)sv.textContent="✓ Save changes"; if(cx)cx.style.display="";
+      if(window.safetyToast)safetyToast("tooledit","info",'<b>Editing “'+_editTool+'”</b><div class="tsub">Change the values above, then Save changes. (Rename is a separate button.)</div>',{timeout:4500}); }
+    else { if(sv)sv.textContent="＋ Save current"; if(cx)cx.style.display="none"; if(window.safetyDismiss)safetyDismiss("tooledit"); }
+  }
+  window.toolRender=function(m){
+    if(m){
+      if(m.tools)TOOLS=m.tools;
+      if(m.active&&m.active.name){ window._tcpLast=m.active; if(_applyingTool){ tcpFill(m.active); _applyingTool=false; } }
+      if(m.saved)log("✓ saved tool '"+m.saved+"'","ok");
+      if(m.renamed)log("✓ renamed tool → '"+m.renamed+"'","ok");
+      if(m.message&&window.safetyToast)safetyToast("toolexist","warn",'<b>Can’t save tool</b><div class="tsub">'+m.message+'</div>',{timeout:5000});
+    }
+    if(_editTool && !TOOLS.some(function(t){return t.name===_editTool;})) setToolEdit(null);   // edited tool gone (renamed/deleted)
+    var el=$("toollib"); if(!el)return;
+    if(!TOOLS.length){ el.innerHTML='<div class="wphint">No saved tools yet. Define a tool above, then “Save current”.</div>'; return; }
+    el.innerHTML=TOOLS.map(function(t){
+      var mm=(t.pos||[0,0,0]).map(function(v){return (v*1000).toFixed(0);}).join(", ");
+      var act=!!t.active;
+      return '<div class="wprow" style="flex-direction:column;align-items:flex-start'+(act?';border-color:var(--ok)':'')+'">'
+        +'<div style="display:flex;width:100%;align-items:center;gap:4px;flex-wrap:wrap">'
+        +'<span class="wpnm">'+esc(t.name)+(act?' <span style="color:var(--ok);font-size:11px">● active</span>':'')+'</span>'
+        +'<button class="wgo" data-ap="'+esc(t.name)+'">'+(act?'Applied':'Apply')+'</button>'
+        +'<button data-ted="'+esc(t.name)+'">Edit</button>'
+        +'<button data-trn="'+esc(t.name)+'">Rename</button>'
+        +'<button data-tsa="'+esc(t.name)+'">Save as</button>'
+        +'<button class="wdel" data-del="'+esc(t.name)+'">✕</button>'
+        +'</div>'
+        +'<div style="font-size:12px;color:#8a97a8;margin-top:4px">offset '+mm+' mm · '+((t.payload||0))+' kg</div>'
+        +'</div>';
+    }).join("");
+    el.querySelectorAll("[data-ap]").forEach(function(b){b.onclick=function(){ var nm=b.getAttribute("data-ap"); _applyingTool=true; send({cmd:"tool_select",name:nm}); log("→ apply tool '"+nm+"'","mut"); };});
+    el.querySelectorAll("[data-del]").forEach(function(b){b.onclick=function(){ var nm=b.getAttribute("data-del"); if(confirm("Delete tool “"+nm+"”?")) send({cmd:"tool_delete",name:nm}); };});
+    el.querySelectorAll("[data-ted]").forEach(function(b){b.onclick=function(){ var nm=b.getAttribute("data-ted"); var t=TOOLS.filter(function(x){return x.name===nm;})[0]; if(!t)return; window._tcpLast=t; tcpFill(t); setToolEdit(nm); };});
+    el.querySelectorAll("[data-trn]").forEach(function(b){b.onclick=function(){ var nm=b.getAttribute("data-trn"); var nn=prompt("Rename tool",nm); if(nn===null)return; nn=nn.trim(); if(!nn)return;
+      if(TOOLS.some(function(x){return x.name!==nm&&String(x.name||"").trim().toLowerCase()===nn.toLowerCase();})){ if(window.safetyToast)safetyToast("toolexist","warn",'<b>Name already exists</b><div class="tsub">A tool named “'+nn+'” already exists.</div>',{timeout:5000}); return; }
+      send({cmd:"tool_rename",old:nm,new:nn}); log("→ rename tool '"+nm+"' → '"+nn+"'","mut"); };});
+    el.querySelectorAll("[data-tsa]").forEach(function(b){b.onclick=function(){ var nm=b.getAttribute("data-tsa"); var t=TOOLS.filter(function(x){return x.name===nm;})[0]; if(!t)return; var nn=prompt("Save as — new tool name",nm+" copy"); if(nn===null)return; nn=nn.trim(); if(!nn)return;
+      if(TOOLS.some(function(x){return String(x.name||"").trim().toLowerCase()===nn.toLowerCase();})){ if(window.safetyToast)safetyToast("toolexist","warn",'<b>Name already exists</b><div class="tsub">A tool named “'+nn+'” already exists.</div>',{timeout:5000}); return; }
+      send({cmd:"tool_save",name:nn,pos:t.pos,quat:t.quat,payload:t.payload,cog:t.cog}); log("→ save-as tool '"+nn+"'","mut"); };});
+  };
+  $("toolsave").onclick=function(){
+    var v=tcpVals();
+    if(_editTool){                                    // EDIT mode: update the loaded tool in place (keeps its name)
+      send({cmd:"tool_update", name:_editTool, pos:v.pos, quat:v.quat, payload:v.payload, cog:v.cog});
+      log("→ update tool '"+_editTool+"'","mut"); setToolEdit(null); return; }
+    var nm=(($("tcpname").value||"").trim())||"tool";
+    if(TOOLS.some(function(t){return String(t.name||"").trim().toLowerCase()===nm.toLowerCase();})){
+      if(window.safetyToast)safetyToast("toolexist","warn",'<b>Name already exists</b><div class="tsub">A tool named “'+nm+'” already exists. Choose a different name.</div>',{timeout:5000});
+      return; }
+    v.name=nm; send(Object.assign({cmd:"tool_save"}, v)); log("→ save tool '"+nm+"'","mut"); };
+  $("tooleditcancel").onclick=function(){ setToolEdit(null); };
+  $("toolrefresh").onclick=function(){ send({cmd:"tool_list"}); };
+  $("tcpreset").onclick=function(){ send({cmd:"set_tcp",name:"flange",pos:[0,0,0],quat:[1,0,0,0],payload:0,cog:[0,0,0]}); log("→ TCP reset to flange","mut"); setTimeout(function(){send({cmd:"get_tcp"});},150); };
+
+  // 4-point teach: capture the live flange pose at each touch
+  $("tcpcap").onclick=function(){ var m=window._tlState; if(!m||!m.flange){$("tcpstat").textContent="no state yet";return;}
+    caps.push(m.flange.pos.concat(m.flange.quat)); $("tcpn").textContent=caps.length;
+    $("tcpstat").textContent="captured "+caps.length+" pose(s)"+(caps.length<4?" — need ≥4":" — ready to solve"); };
+  $("tcpclr").onclick=function(){ caps=[]; $("tcpn").textContent=0; $("tcpstat").textContent="cleared"; };
+  $("tcpsolve").onclick=function(){ if(caps.length<4){$("tcpstat").textContent="capture ≥4 points first";return;}
+    send({cmd:"tcp_teach", flanges:caps, apply:true, name:$("tcpname").value||"tool"}); $("tcpstat").textContent="solving…"; };
+
+  // orientation teach: capture flange pose (same orientation) at Ref / +Z / +X
+  var tori={ref:null,z:null,x:null};
+  function toriGrab(k,ind){ var m=window._tlState; if(!m||!m.flange){$("tori_stat").textContent="no state yet";return;}
+    tori[k]=m.flange.pos.concat(m.flange.quat); $(ind).textContent="✓"; $(ind).style.color="var(--ok)";
+    $("tori_stat").textContent="captured "+(tori.ref?"Ref ":"")+(tori.z?"+Z ":"")+(tori.x?"+X":"")+(tori.ref&&tori.z?" — ready to solve":" — keep capturing"); }
+  $("tori_ref").onclick=function(){ toriGrab("ref","tori_r"); };
+  $("tori_z").onclick=function(){ toriGrab("z","tori_zc"); };
+  $("tori_x").onclick=function(){ toriGrab("x","tori_xc"); };
+  $("tori_clr").onclick=function(){ tori={ref:null,z:null,x:null}; ["tori_r","tori_zc","tori_xc"].forEach(function(i){$(i).textContent="–";$(i).style.color="";}); $("tori_stat").textContent="cleared"; };
+  $("tori_solve").onclick=function(){ if(!tori.ref||!tori.z){$("tori_stat").textContent="capture Ref and +Z first";return;}
+    send({cmd:"tcp_teach_orient", ref:tori.ref, zdir:tori.z, xdir:tori.x, apply:true, name:$("tcpname").value||"tool"}); $("tori_stat").textContent="solving orientation…"; };
+
+  // responses routed from the ack handler
+  window.tcpAck=function(m){
+    if(m.cmd==="get_tcp"&&m.tcp){ window._tcpLast=m.tcp; tcpFill(m.tcp); }
+    if(m.cmd==="set_tcp"&&m.tcp){ window._tcpLast=m.tcp; }
+    if(m.cmd==="tcp_teach"){ if(m.ok){ $("tcpstat").textContent="offset "+m.offset.map(function(v){return (v*1000).toFixed(1);}).join(", ")+" mm  (rms "+(m.rms*1000).toFixed(2)+" mm, n="+m.n+")"; caps=[]; $("tcpn").textContent=0; setTimeout(function(){send({cmd:"get_tcp"});},150); }
+      else $("tcpstat").textContent="solve failed (degenerate poses — vary orientation more)"; }
+    if(m.cmd==="tcp_teach_orient"){ if(m.ok){ $("tori_stat").textContent="orientation set (quat "+m.quat.map(function(v){return v.toFixed(3);}).join(", ")+")"+(m.has_x?"":" — Z only, roll free"); setTimeout(function(){send({cmd:"get_tcp"});},150); }
+      else $("tori_stat").textContent="solve failed: "+(m.message||"capture Ref and +Z first"); }
+  };
+})();
+</script>
+<script>
+/* ---- ✍ Robot writing panel + 3D preview ---- */
+(function(){
+  function $(id){return document.getElementById(id);}
+  function show(on){ $("wrov").style.display=on?"flex":"none"; if(on) send({cmd:"plane_list"}); }
+  $("wrbtn").onclick=function(){ show(true); };
+  $("wrclose").onclick=function(){ show(false); };
+  function params(){ var p={
+    text: $("wrtext").value,
+    height: Math.max(1,(+$("wrh").value))/1000,      // mm -> m
+    pen_up: Math.max(1,(+$("wrup").value))/1000,
+    draw_speed: Math.max(1,(+$("wrspd").value))/1000, // mm/s -> m/s
+    align: $("wralign").value };
+    var pn=$("wrplane").value; if(pn) p.plane_name=pn;   // else current tool-tip pose / active
+    return p; }
+
+  // ---- writing plane: 3-point teach + saved planes ----
+  var caps={origin:null,x:null,y:null};
+  function tcpPose7(){ var m=window._tlState; if(!m||!m.tcp)return null;
+    return [m.tcp.pos[0],m.tcp.pos[1],m.tcp.pos[2],m.tcp.quat[0],m.tcp.quat[1],m.tcp.quat[2],m.tcp.quat[3]]; }
+  function cap(which,ind){ var p=tcpPose7(); if(!p){$("wrstat").textContent="no tool-tip pose yet — connect first";return;}
+    caps[which]=p; $(ind).textContent="✓"; $(ind).style.color="var(--ok)";
+    $("wrstat").textContent="captured "+(caps.origin?"origin ":"")+(caps.x?"+X ":"")+(caps.y?"+Y":"")+" — "+((caps.origin&&caps.x&&caps.y)?"ready to Save 3‑pt":"keep capturing"); }
+  $("wrcap0").onclick=function(){ cap("origin","wrc0"); };
+  $("wrcapx").onclick=function(){ cap("x","wrcx"); };
+  $("wrcapy").onclick=function(){ cap("y","wrcy"); };
+  $("wrpsave").onclick=function(){ if(!(caps.origin&&caps.x&&caps.y)){$("wrstat").textContent="capture Origin, +X and +Y first";return;}
+    send({cmd:"plane_save", name:$("wrpname").value||"paper", origin:caps.origin, xpt:caps.x, ypt:caps.y});
+    log("→ save 3‑point writing plane '"+($("wrpname").value||"paper")+"'","mut"); };
+  $("wrpsavecur").onclick=function(){ send({cmd:"plane_save", name:$("wrpname").value||"paper"});
+    log("→ save current pose as plane '"+($("wrpname").value||"paper")+"'","mut"); };
+  // ---- auto-detect plane (touch probe) ----
+  if($("prsens")) $("prsens").oninput=function(){ $("prsv").textContent=$("prsens").value+"%"; };
+  $("prgo") && ($("prgo").onclick=function(){
+    if(!confirm("Auto‑detect the table by touch probing?\n\nThe marker will point straight down and descend slowly until it touches the table (3 corners). Make sure the marker TCP is configured, the tip is ABOVE a clear paper area, and you're ready to E‑STOP if needed."))return;
+    send({cmd:"probe_plane", name:($("wrpname").value||"table"),
+          width:(+$("prw").value)/1000, height:(+$("prh").value)/1000, max_drop:(+$("prdrop").value)/1000,
+          sensitivity:(+$("prsens").value)/100});
+    $("prstat").textContent="probing… hold ready on E‑STOP"; log("→ auto‑detect plane (touch probe)","mut"); });
+  $("prstop") && ($("prstop").onclick=function(){ send({cmd:"program_stop"}); $("prstat").textContent="stopped"; });
+  $("prset") && ($("prset").onclick=function(){
+    if(!confirm("Save the CURRENT joint pose as the Auto‑detect ready pose?\n\nMake sure the marker is perpendicular (pen straight down) over your paper first."))return;
+    send({cmd:"save_ready_pose"}); $("prstat").textContent="saving ready pose…"; });
+  window.probeEvent=function(m){ var e=m.event;
+    if(e==="start") $("prstat").textContent="probing 3 corners…";
+    else if(e==="probing") $("prstat").textContent="probing "+m.corner+" at ("+m.xy[0].toFixed(3)+", "+m.xy[1].toFixed(3)+")…";
+    else if(e==="touched") { $("prstat").textContent="✓ touched "+m.corner+" at z="+(m.z*1000).toFixed(1)+" mm"; log("touched "+m.corner+" z="+(m.z*1000).toFixed(1)+"mm","ok"); }
+    else if(e==="done"){ var p=m.plane; $("prstat").textContent="✓ plane '"+p.name+"' built ("+Math.round(p.size.w*1000)+"×"+Math.round(p.size.h*1000)+" mm) & active";
+      log("✓ auto plane '"+p.name+"' detected & active","ok"); if(window.safetyToast)safetyToast("probe","info","<b>Table plane detected</b><div class=\"tsub\">'"+p.name+"' is now the active writing plane.</div>",{timeout:5000}); }
+    else if(e==="aborted"){ $("prstat").textContent="■ probe stopped"; }
+    else if(e==="error"){ $("prstat").textContent="✕ "+(m.message||"probe failed"); if(window.safetyToast)safetyToast("probe","danger",'<b>Auto‑detect failed</b><div class="tsub">'+(m.message||"")+'</div>',{timeout:6000}); } };
+  $("wrpsel").onclick=function(){ var n=$("wrplane").value; if(n){ send({cmd:"plane_select",name:n}); log("→ writing plane '"+n+"' selected","ok"); } };
+  $("wrpdel").onclick=function(){ var n=$("wrplane").value; if(n&&confirm("Delete writing plane '"+n+"'?")) send({cmd:"plane_delete",name:n}); };
+  window.wrPlanes=function(m){ var sel=$("wrplane"), cur=sel.value;
+    sel.innerHTML='<option value="">▸ current tool‑tip pose</option>'+
+      (m.planes||[]).map(function(p){ return '<option value="'+p.name+'"'+((p.name===m.active)?' selected':'')+'>'+p.name+
+        ' ('+Math.round((p.size&&p.size.w||0)*1000)+'×'+Math.round((p.size&&p.size.h||0)*1000)+' mm)'+((p.name===m.active)?' ✓ active':'')+'</option>'; }).join('');
+    if(m.saved){ sel.value=m.saved; caps={origin:null,x:null,y:null}; ["wrc0","wrcx","wrcy"].forEach(function(id){$(id).textContent="–";$(id).style.color="";});
+      $("wrstat").textContent="saved & selected plane '"+m.saved+"'"; log("plane '"+m.saved+"' saved","ok"); }
+    else if(cur) sel.value=cur; };
+
+  // 3D preview: draw the base-frame strokes as lines in the scene
+  var grp=null;
+  function clearPreview(){ if(grp&&window.scene){ scene.remove(grp); grp.traverse&&grp.traverse(function(o){ if(o.geometry)o.geometry.dispose(); }); } grp=null; }
+  window.wrPreview=function(m){
+    if(m.event!=="preview") return;
+    $("wrstat").textContent="preview: "+m.nstrokes+" strokes, "+m.npts+" points, size "+
+      Math.round(m.bbox.w*1000)+"×"+Math.round(m.bbox.h*1000)+" mm";
+    if(!window.scene||!window.THREE){ return; }
+    clearPreview(); grp=new THREE.Group();
+    function V(p){ return new THREE.Vector3(p[0],p[1],p[2]); }
+    function line(a,b,col){ var g=new THREE.BufferGeometry().setFromPoints([V(a),V(b)]); grp.add(new THREE.Line(g,new THREE.LineBasicMaterial({color:col}))); }
+    // draw the writing plane rectangle + X(red)/Y(green) axes
+    var pl=m.plane;
+    if(pl&&pl.pos){ var O=pl.pos,X=pl.xdir,Y=pl.ydir,w=(pl.size&&pl.size.w)||0.2,h=(pl.size&&pl.size.h)||0.15;
+      function P(u,v){ return [O[0]+u*X[0]+v*Y[0], O[1]+u*X[1]+v*Y[1], O[2]+u*X[2]+v*Y[2]]; }
+      var c=0x556070; line(P(0,0),P(w,0),c); line(P(w,0),P(w,h),c); line(P(w,h),P(0,h),c); line(P(0,h),P(0,0),c);
+      line(P(0,0),P(0.05,0),0xff5555); line(P(0,0),P(0,0.05),0x39d98a); }
+    var mat=new THREE.LineBasicMaterial({color:0x39d98a});
+    (m.strokes||[]).forEach(function(st){
+      if(!st||st.length<1) return;
+      var pts=st.map(function(p){ return V(p); });
+      if(pts.length===1) pts.push(pts[0].clone().addScalar(0.001));
+      var g=new THREE.BufferGeometry().setFromPoints(pts);
+      grp.add(new THREE.Line(g,mat));
+    });
+    scene.add(grp);
+    log("write preview: "+m.nstrokes+" strokes on the paper plane","ok");
+  };
+
+  $("wrprev").onclick=function(){ var p=params(); if(!p.text.trim()){$("wrstat").textContent="type some text first";return;}
+    send(Object.assign({cmd:"write_preview"},p)); $("wrstat").textContent="previewing…"; };
+  $("wrgo").onclick=function(){ var p=params(); if(!p.text.trim()){$("wrstat").textContent="type some text first";return;}
+    if(!confirm("Write “"+p.text.replace(/\n/g," / ")+"”?\n\nThe marker will draw on the plane through the current tool‑tip pose. Make sure the drives are enabled and the tip is at the paper's bottom‑left corner.")) return;
+    send(Object.assign({cmd:"write_run",travel_speed:0.4},p)); log("→ writing '"+p.text.replace(/\n/g,' / ')+"'","mut"); $("wrstat").textContent="writing… (watch the Program/Log for progress)"; };
+  $("wrstop").onclick=function(){ send({cmd:"program_stop"}); clearPreview(); log("→ stop writing","warn"); $("wrstat").textContent="stopped"; };
+})();
+</script>
+<script>
+/* ---- physical-contact detection panel (runs late: its elements exist by here) ---- */
+(function(){
+  var on=false, sens=50, ov=$("ctcov");   // contact detection OFF by default (opt-in)
+  if(!ov) return;
+  function push(){ send({cmd:"set_contact",on:on,sensitivity:sens/100}); }
+  $("ctcbtn").onclick=function(){ ov.style.display = ov.style.display==="flex"?"none":"flex"; };
+  $("ctcclose").onclick=function(){ ov.style.display="none"; };
+  $("ctctgl").onclick=function(){ on=!on; var b=$("ctctgl"); b.textContent=on?"ON":"OFF";
+    b.className=on?"go":""; b.style.background=on?"":"#5a1f1f";
+    push(); log("→ contact detection "+(on?"ENABLED":"DISABLED"),on?"ok":"warn");
+    if(!on) log("contact detection OFF — hardware E‑STOP/STO still protects the arm","warn"); };
+  $("ctcsens").oninput=function(){ sens=+$("ctcsens").value; $("ctcsv").textContent=sens+"%"; };
+  $("ctcsens").onchange=function(){ push(); log("→ contact sensitivity "+sens+"%","mut"); };
+  $("ctcpoke").onclick=function(){ var j=+$("ctcpj").value; send({cmd:"contact_poke",joint:j});
+    log("→ SIM: injecting external torque on J"+j+" (expect protective stop)","mut"); };
+  // live external-torque readout (only while the panel is open)
+  setInterval(function(){ var m=window._tlState; if(!m||!m.ext_torque)return;
+    var e=$("ctcext"); if(!e||ov.style.display!=="flex")return;
+    e.innerHTML=m.ext_torque.map(function(v,i){ return 'J'+(i+1)+' <b style="color:'+(Math.abs(v)>2?"var(--warn)":"#e7edf5")+'">'+v.toFixed(1)+'</b>'; }).join(' &nbsp; ');
+  },250);
+})();
+</script>
+<script>
+/* ---- joint direction calibration (±1 per joint), live + persisted ---- */
+(function(){
+  var signs=[1,1,1,1,1,1];
+  function render(){ var r=$("signrow"); if(!r)return;
+    r.innerHTML=signs.map(function(s,i){
+      return '<button data-j="'+i+'" class="signbtn" style="flex:1;padding:8px 0;font-weight:700;color:#e7edf5;border-radius:8px;cursor:pointer;background:'+(s>0?"#143a2a":"#5a1f1f")+';border:1px solid '+(s>0?"#1e6b4a":"#a33")+'">J'+(i+1)+'<br>'+(s>0?"+1":"−1")+'</button>';
+    }).join("");
+    Array.prototype.forEach.call(r.querySelectorAll(".signbtn"),function(b){
+      b.onclick=function(){ var j=+b.getAttribute("data-j"); signs[j]=-signs[j]; render();
+        send({cmd:"set_sign",signs:signs.slice()});
+        if($("signstat"))$("signstat").textContent="J"+(j+1)+" → "+(signs[j]>0?"+1":"−1")+" — drives disabled, re‑enable to move";
+        log("→ joint "+(j+1)+" direction "+(signs[j]>0?"+1":"−1"),"mut"); };
+    });
+  }
+  window.applySigns=function(s){ if(s&&s.length===6){ signs=s.map(function(v){return v<0?-1:1;}); render(); } };
+  render();
+  // ask for the current signs once connected (in case welcome was missed)
+  setTimeout(function(){ try{ if(typeof ws!=="undefined"&&ws&&ws.readyState===1) send({cmd:"get_signs"}); }catch(e){} },800);
+})();
+</script>
+</body>
+</html>

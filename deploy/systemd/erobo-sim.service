@@ -1,0 +1,14 @@
+# eRoBo simulated drives (development / demo / training). Mutually exclusive with erobo-control.
+[Unit]
+Description=eRoBo 10 simulated control node (1 kHz)
+Conflicts=erobo-control.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/rm -f /dev/shm/erobo10_shm
+ExecStart=/opt/erobo/bin/control_node --shm /dev/shm/erobo10_shm
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,21 @@
+# eRoBo real-time EtherCAT control node (hardware). Use erobo-sim.service on a dev machine.
+[Unit]
+Description=eRoBo 10 real-time control node (EtherCAT, 1 kHz)
+After=network.target
+Wants=erobo-planner.service erobo-ik.service erobo-controller.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/rm -f /dev/shm/erobo10_shm
+ExecStart=/opt/erobo/bin/ecat_control_node --shm /dev/shm/erobo10_shm
+ExecStartPost=/bin/sh -c 'for i in $(seq 1 100); do [ -e /dev/shm/erobo10_shm ] && break; sleep 0.1; done; chmod 666 /dev/shm/erobo10_shm'
+Restart=on-failure
+RestartSec=2
+User=root
+LimitMEMLOCK=infinity
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=90
+Environment=EROBO_CALIB=/var/lib/erobo/calibration.txt
+
+[Install]
+WantedBy=multi-user.target

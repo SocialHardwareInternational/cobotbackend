@@ -1,0 +1,24 @@
+# eRoBo full simulated robot in one container (demo / training / CI).
+#   docker build -f deploy/Dockerfile.sim -t erobo-sim .
+#   docker run -p 8080:8080 -p 8765:8765 -p 1502:1502 erobo-sim
+FROM ubuntu:22.04
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    g++ make python3 python3-pip && rm -rf /var/lib/apt/lists/* \
+    && pip3 install --no-cache-dir websockets
+WORKDIR /erobo
+COPY Makefile ./
+COPY core core
+COPY apps apps
+COPY test test
+RUN make -s apps
+COPY bridge bridge
+COPY controller controller
+COPY robot robot
+COPY studio/dist studio/dist
+COPY run run
+ENV EROBO_RUN_DIR=/data
+VOLUME /data
+EXPOSE 8080 8765 1502
+COPY deploy/docker-entry.sh /entry.sh
+RUN chmod +x /entry.sh
+CMD ["/entry.sh"]

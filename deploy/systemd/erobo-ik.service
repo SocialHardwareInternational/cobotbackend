@@ -1,0 +1,12 @@
+[Unit]
+Description=eRoBo 10 IK solver service
+After=erobo-control.service erobo-sim.service
+
+[Service]
+Type=simple
+ExecStart=/opt/erobo/bin/ik_solver --shm /dev/shm/erobo10_shm
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

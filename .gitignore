@@ -1,0 +1,25 @@
+# build output / runtime state
+bin/
+run/
+__pycache__/
+*.pyc
+*.pyo
+
+# dependencies / build artifacts
+node_modules/
+studio/node_modules/
+*.o
+*.obj
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# personal / confidential — do not publish
+Aryan_Singh_CV.pdf
+Aryan_Singh_CV.docx
+reports/
+CLAUDE_FABLE5_PROMPT.md

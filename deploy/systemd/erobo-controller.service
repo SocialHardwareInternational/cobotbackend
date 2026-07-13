@@ -1,0 +1,14 @@
+[Unit]
+Description=eRoBo 10 controller service (WebSocket + REST + Studio UI + Modbus + MQTT)
+After=erobo-planner.service erobo-ik.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/erobo
+Environment=EROBO_RUN_DIR=/var/lib/erobo
+ExecStart=/usr/bin/python3 /opt/erobo/controller/erobo_controld.py --shm /dev/shm/erobo10_shm
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=eRoBo 10 motion planner (jerk-limited trajectories, 1 kHz)
+After=erobo-control.service erobo-sim.service
+
+[Service]
+Type=simple
+ExecStart=/opt/erobo/bin/motion_planner --shm /dev/shm/erobo10_shm
+Restart=on-failure
+RestartSec=2
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=80
+
+[Install]
+WantedBy=multi-user.target

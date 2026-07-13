@@ -1,0 +1,45 @@
+{
+  "name": "erobo-studio",
+  "productName": "eRoBo Studio",
+  "version": "2.0.0",
+  "description": "Industrial control studio for the eRoBo 10 collaborative robot",
+  "author": "eRoBo Robotics",
+  "license": "Proprietary",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build",
+    "electron": "electron .",
+    "start": "npm run build && electron .",
+    "package": "npm run build && electron-builder",
+    "package:win": "npm run build && electron-builder --win",
+    "package:linux": "npm run build && electron-builder --linux"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.169.0",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.14",
+    "@types/react-dom": "^18.3.2",
+    "@types/three": "^0.169.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  },
+  "build": {
+    "appId": "com.erobo.studio",
+    "files": ["dist/**", "electron/**"],
+    "directories": { "output": "release" },
+    "win": { "target": "nsis" },
+    "linux": { "target": ["AppImage", "deb"], "category": "Utility" },
+    "mac": { "target": "dmg", "category": "public.app-category.utilities" }
+  }
+}
